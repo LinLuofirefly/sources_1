@@ -46,8 +46,7 @@ module perip_bridge(
     localparam LED_ADDR  = 32'h8020_0040;  // led[31:0]
     localparam CNT_ADDR  = 32'h8020_0050;  // counter
     localparam CNT_START_CMD = 32'h8000_0000;
-    localparam CNT_STOP_CMD  = 32'hFFFF_FFFF;
-
+    localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     logic [31:0] LED;
     logic [31:0] perip_rd_addr_r; // 延迟一拍的读地址
 
