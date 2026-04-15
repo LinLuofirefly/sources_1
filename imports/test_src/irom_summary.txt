@@ -1,0 +1,38 @@
+cat counts
+: 1271
+
+mn counts top30
+addi: 362
+lw: 157
+sw: 151
+ret: 92
+auipc: 90
+lui: 70
+jal: 65
+bne: 57
+mv: 53
+or: 16
+j: 16
+nop: 13
+bnez: 13
+add: 9
+slli: 7
+neg: 7
+lb: 6
+ori: 6
+slti: 4
+srli: 4
+jr: 4
+bltz: 4
+bltu: 4
+sb: 4
+and: 4
+bge: 4
+beq: 3
+lh: 3
+sub: 3
+sll: 3
+
+range by cat
+: first=0x80000000 last=0x800013D8 count=1271
+
