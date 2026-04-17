@@ -178,6 +178,17 @@ module open_risc_v (
     wire        mem1_mem2_is_load_o;       // MEM1/MEM2 输出: Load 标记
 
     // =================================================================
+    // 8b. MEM2 对齐级线网 (新增 1 拍)
+    // =================================================================
+
+    wire [4:0]  mem2_align_rd_addr_o;
+    wire [31:0] mem2_align_rd_data_o;
+    wire        mem2_align_rd_wen_o;
+    wire [31:0] mem2_align_inst_o;
+    wire [31:0] mem2_align_mem_rd_addr_o;
+    wire        mem2_align_is_load_o;
+
+    // =================================================================
     // 9. MEM2 级输出线�?    // =================================================================
 
     wire [31:0] mem2_inst_o;               // MEM2 输出: 指令
@@ -202,7 +213,7 @@ module open_risc_v (
     // 顶层外部 RAM 接口连线
     // =================================================================
     assign mem_rd_reg_o  = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
-        assign mem_rd_addr_o = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
+    assign mem_rd_addr_o = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
  
 
     // *************************************************************************************************
@@ -244,7 +255,6 @@ module open_risc_v (
     // -----------------------------------------------------------------
     regs regs_inst (
         .clk          (clk),
-        .rst          (rst),
         .reg1_raddr_i (id_rs1_addr_o),
         .reg2_raddr_i (id_rs2_addr_o),
         .reg1_rdata_o (regs_reg1_rdata_o),
@@ -317,9 +327,9 @@ module open_risc_v (
         .ex_mem_rd_data_i    (ex_mem_rd_data_o),
         .ex_mem_rd_wen_i     (ex_mem_rd_wen_o),
         .ex_mem_is_load_i    (ex_mem_is_load_o),
-        .mem1_mem2_rd_addr_i (mem2_rd_addr_o),
-        .mem1_mem2_rd_data_i (mem2_rd_data_o),
-        .mem1_mem2_rd_wen_i  (mem2_rd_wen_o),
+        .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
+        .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
+        .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
         .mem_wb_rd_addr_i    (mem_wb_rd_addr_o),
         .mem_wb_rd_data_i    (mem_wb_rd_data_o),
         .mem_wb_rd_wen_i     (mem_wb_rd_wen_o),
@@ -336,8 +346,10 @@ module open_risc_v (
     Hazard_detection_unit hdu_inst (
         .id_inst_i    (if_id_inst_o),
         .ex_inst_i    (id_ex_inst_o),
+        .mem2a_inst_i (mem2_align_inst_o),
         .hold_flag_o  (hdu_hold_flag_o),
-        .flush_flag_o (hdu_flush_flag_o)
+        .flush_flag_o (hdu_flush_flag_o),
+        .mem1_inst_i  (mem_inst_o)
     );
 
     // -----------------------------------------------------------------
@@ -454,16 +466,39 @@ module open_risc_v (
     );
 
     // -----------------------------------------------------------------
-    // 11. 第二访存�?(MEM2)
-    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
+    // 10b. MEM2 对齐级寄存器 (新增)
+    //      让 load 控制与延迟后的 RAM 返回数据同拍进入 MEM2
     // -----------------------------------------------------------------
-    mem2 mem2_inst (
+    mem1_mem2 mem2_align_inst (
+        .clk           (clk),
+        .rst           (rst),
+        .hold_flag_i   (1'b0),
+        .flush_flag_i  (1'b0),
         .inst_i        (mem1_mem2_inst_o),
         .rd_addr_i     (mem1_mem2_rd_addr_o),
         .rd_data_i     (mem1_mem2_rd_data_o),
         .rd_wen_i      (mem1_mem2_rd_wen_o),
         .mem_rd_addr_i (mem1_mem2_mem_rd_addr_o),
         .is_load_i     (mem1_mem2_is_load_o),
+        .rd_addr_o     (mem2_align_rd_addr_o),
+        .rd_data_o     (mem2_align_rd_data_o),
+        .rd_wen_o      (mem2_align_rd_wen_o),
+        .mem_rd_addr_o (mem2_align_mem_rd_addr_o),
+        .is_load_o     (mem2_align_is_load_o),
+        .inst_o        (mem2_align_inst_o)
+    );
+
+    // -----------------------------------------------------------------
+    // 11. 第二访存�?(MEM2)
+    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
+    // -----------------------------------------------------------------
+    mem2 mem2_inst (
+        .inst_i        (mem2_align_inst_o),
+        .rd_addr_i     (mem2_align_rd_addr_o),
+        .rd_data_i     (mem2_align_rd_data_o),
+        .rd_wen_i      (mem2_align_rd_wen_o),
+        .mem_rd_addr_i (mem2_align_mem_rd_addr_o),
+        .is_load_i     (mem2_align_is_load_o),
         .mem_rd_data_i (ram_data_i),
         .rd_addr_o     (mem2_rd_addr_o),
         .rd_data_o     (mem2_rd_data_o),

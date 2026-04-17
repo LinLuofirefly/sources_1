@@ -44,6 +44,7 @@ module counter(
     logic [31:0] cnt_ms_gray;
     logic cnt_enable_cnt_d1, cnt_enable_cnt_d2;
     logic [31:0] cnt_gray_cpu_d1, cnt_gray_cpu_d2;
+    logic [31:0] cnt_bin_cpu_d;
 
     // CPU->counter CDC: synchronize level control into cnt_clk domain.
     always_ff @(posedge cnt_clk) begin
@@ -87,12 +88,14 @@ module counter(
         if (rst) begin
             cnt_gray_cpu_d1 <= 32'd0;
             cnt_gray_cpu_d2 <= 32'd0;
+            cnt_bin_cpu_d   <= 32'd0;
         end else begin
             cnt_gray_cpu_d1 <= cnt_ms_gray;
             cnt_gray_cpu_d2 <= cnt_gray_cpu_d1;
+            cnt_bin_cpu_d   <= gray_to_bin(cnt_gray_cpu_d2);
         end
     end
 
-    assign perip_rdata = gray_to_bin(cnt_gray_cpu_d2);
+    assign perip_rdata = cnt_bin_cpu_d;
 
 endmodule

@@ -23,12 +23,12 @@ module dram_driver(
     input  logic [17:0]  perip_rd_addr      ,
     output logic [31:0]  perip_rdata	
 );
-    logic [15:0] dram_addr;
+    logic perip_wen;
     logic [31:0] dram_data;
     logic [15:0] rd_addr, wr_addr;
     assign rd_addr = perip_rd_addr[17:2];
     assign wr_addr = perip_addr[17:2];
-
+    assign perip_wen=|perip_wstrb;  // 只要有任意字节写使能就认为是写请求
     // =========================================================================
     // DRAM IP 例化: 同时使用 spo (异步) 和 qspo (同步)
     // =========================================================================
@@ -37,7 +37,7 @@ module dram_driver(
         .addra       (wr_addr),
         .dina        (perip_wdata),         // 异步读: 当前地址的实时数据 → Store RMW
         .douta       (dram_data),        // 同步读: 上一拍地址的数据   → Load 数据
-        .ena         (1'b1),
+        .ena         (perip_wen),
         .wea         (perip_wstrb),
         .clkb        (clk),
         .addrb       (rd_addr),

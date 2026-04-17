@@ -9,6 +9,103 @@
 // =============================================================================
 
 module regs (
+    input  wire        clk,
+    // rst 信号被移除，因为纯净的 RAM 不需要/不支持复位
+
+    // --- 读端口 1 ---
+    input  wire [4:0]  reg1_raddr_i,
+    output reg  [31:0] reg1_rdata_o,
+
+    // --- 读端口 2 ---
+    input  wire [4:0]  reg2_raddr_i,
+    output reg  [31:0] reg2_rdata_o,
+
+    // --- 写端口 ---
+    input  wire [4:0]  reg_waddr_i,
+    input  wire [31:0] reg_wdata_i,
+    input  wire        reg_wen
+);
+
+    // 定义 32 个 32 位通用寄存器
+    // 去除硬件复位后，Vivado 会将其推断为 Distributed RAM
+    reg [31:0] regs [0:31];
+
+    // =================================================================
+    // 读端口 1 (纯异步读取 + 写后读前递)
+    // =================================================================
+    always @(*) begin
+        if (reg1_raddr_i == 5'b0) begin
+            reg1_rdata_o = 32'b0;
+        end
+        else if (reg_wen && (reg1_raddr_i == reg_waddr_i)) begin
+            reg1_rdata_o = reg_wdata_i; // 保持写后读前递
+        end
+        else begin
+            reg1_rdata_o = regs[reg1_raddr_i];
+        end
+    end
+
+    // =================================================================
+    // 读端口 2 (纯异步读取 + 写后读前递)
+    // =================================================================
+    always @(*) begin
+        if (reg2_raddr_i == 5'b0) begin
+            reg2_rdata_o = 32'b0;
+        end
+        else if (reg_wen && (reg2_raddr_i == reg_waddr_i)) begin
+            reg2_rdata_o = reg_wdata_i; // 保持写后读前递
+        end
+        else begin
+            reg2_rdata_o = regs[reg2_raddr_i];
+        end
+    end
+
+    // =================================================================
+    // 写端口 (纯同步写入，无复位)
+    // =================================================================
+    always @(posedge clk) begin
+        if (reg_wen && reg_waddr_i != 5'b0) begin
+            regs[reg_waddr_i] <= reg_wdata_i;
+        end
+    end
+
+endmodule
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*module regs (
     input  wire        clk,                // 时钟信号
     input  wire        rst,                // 复位信号 (低电平有效)
 
@@ -85,4 +182,4 @@ module regs (
         end
     end
 
-endmodule
+endmodule*/
