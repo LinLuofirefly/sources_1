@@ -40,15 +40,16 @@ module id_ex (
     output wire [31:0] addr_offset_o       // 地址偏移量
 );
 
-    // 每个信号使用独立的 dff_set 实例进行打拍
-    // 冲刷时: 指令变为 NOP，其余信号清零
+    // 时序优化:
+    // 仅对 inst/reg_wen 使用 flush 以插入气泡并屏蔽副作用，
+    // 其余宽数据总线不参与 flush 组合，降低关键路径负担。
     dff_set #(32) dff_inst        (clk, rst, hold_flag_i, flush_flag_i, `INST_NOP, inst_i,        inst_o);
-    dff_set #(32) dff_inst_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     inst_addr_i,   inst_addr_o);
-    dff_set #(32) dff_op1         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op1_i,         op1_o);
-    dff_set #(32) dff_op2         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op2_i,         op2_o);
-    dff_set #(5)  dff_rd_addr     (clk, rst, hold_flag_i, flush_flag_i, 5'b0,      rd_addr_i,     rd_addr_o);
+    dff_set #(32) dff_inst_addr   (clk, rst, hold_flag_i, 1'b0,        32'b0,     inst_addr_i,   inst_addr_o);
+    dff_set #(32) dff_op1         (clk, rst, hold_flag_i, 1'b0,        32'b0,     op1_i,         op1_o);
+    dff_set #(32) dff_op2         (clk, rst, hold_flag_i, 1'b0,        32'b0,     op2_i,         op2_o);
+    dff_set #(5)  dff_rd_addr     (clk, rst, hold_flag_i, 1'b0,        5'b0,      rd_addr_i,     rd_addr_o);
     dff_set #(1)  dff_reg_wen     (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      reg_wen_i,     reg_wen_o);
-    dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     base_addr_i,   base_addr_o);
-    dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     addr_offset_i, addr_offset_o);
+    dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, 1'b0,        32'b0,     base_addr_i,   base_addr_o);
+    dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, 1'b0,        32'b0,     addr_offset_i, addr_offset_o);
 
 endmodule
