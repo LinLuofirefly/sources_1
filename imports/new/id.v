@@ -41,8 +41,8 @@ module id (
     output reg         reg_wen,            // 寄存器写使能 (1: 需要写回结果)
     output reg  [31:0] base_addr_o,        // 基地址 (用于访存/跳转地址计算)
     output reg  [31:0] addr_offset_o,      // 地址偏移量 (用于访存/跳转地址计算)
-    output reg         mem_rd_reg_o        // 内存读标记 (1: 这是一条 Load 指令)
-    output wire        pred_taken_o,       // 预测是否跳转
+    output reg         mem_rd_reg_o,        // 内存读标记 (1: 这是一条 Load 指令)
+    output reg         pred_taken_o       // 预测是否跳转
 );
 
     // =================================================================
