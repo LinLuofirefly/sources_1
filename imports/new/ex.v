@@ -28,6 +28,7 @@ module ex (
     input  wire [31:0] op2_i,              // 操作数 2 (经前递修正)
     input  wire [4:0]  rd_addr_i,          // 目标寄存器地址
     input  wire        rd_wen_i,           // 寄存器写使能
+    input  wire        pred_taken_i,       // 该指令在 IF 级的预测结果
 
     // =================================================================
     // 输出: 写回通道 (送往 EX/MEM1 流水线寄存器)
@@ -37,10 +38,15 @@ module ex (
     output reg         rd_wen_o,           // 寄存器写使能
 
     // =================================================================
-    // 输出: 跳转控制 (送往 CTRL 控制器)
+    // 输出: 跳转控制 (送往 CTRL 控制器/BHT 控制器)
     // =================================================================
-    output reg  [31:0] jump_addr_o,        // 跳转目标地址
-    output reg         jump_en_o,          // 跳转使能 (1: 需要跳转)
+    output reg  [31:0] jump_addr_o,        // 误预判的修正地址
+    output reg         jump_en_o,          // 跳转使能 (1: 误预判导致修正)
+    
+    // BHT 更新输出
+    output reg         branch_update_en_o,    // BHT 更新使能
+    output reg  [31:0] branch_update_pc_o,    // BHT 更新的分支 PC
+    output reg         branch_actual_taken_o, // 实际跳转结果
 
     // =================================================================
     // 输出: 指令透传
@@ -115,6 +121,9 @@ module ex (
         mem_wd_data_o = 32'b0;
         is_load_o     = 1'b0;
         mem_rd_addr_o = 32'b0;
+        branch_update_en_o    = 1'b0;
+        branch_update_pc_o    = 32'b0;
+        branch_actual_taken_o = 1'b0;
 
         case (opcode)
 
@@ -182,15 +191,31 @@ module ex (
             // 跳转目标地址 = base_addr (PC) + addr_offset (立即数)
             // =========================================================
             `INST_TYPE_B: begin
+                branch_update_en_o = 1'b1;
+                branch_update_pc_o = inst_addr_i;
+
                 case (func3)
-                    `INST_BNE:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_equal_op2_i;         end  // BNE: 不等则跳
-                    `INST_BEQ:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_equal_op2_i;          end  // BEQ: 相等则跳
-                    `INST_BLT:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_less_op2_i_signed;    end  // BLT: 有符号小于则跳
-                    `INST_BGE:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_less_op2_i_signed;   end  // BGE: 有符号大于等于则跳
-                    `INST_BLTU: begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_less_op2_i_unsigned;  end  // BLTU: 无符号小于则跳
-                    `INST_BGEU: begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_less_op2_i_unsigned; end  // BGEU: 无符号大于等于则跳
-                    default:    begin jump_addr_o = 32'b0;                     jump_en_o = 1'b0;                       end
+                    `INST_BNE:  begin branch_actual_taken_o = ~op1_i_equal_op2_i;         end  // BNE: 不等则跳
+                    `INST_BEQ:  begin branch_actual_taken_o = op1_i_equal_op2_i;          end  // BEQ: 相等则跳
+                    `INST_BLT:  begin branch_actual_taken_o = op1_i_less_op2_i_signed;    end  // BLT: 有符号小于则跳
+                    `INST_BGE:  begin branch_actual_taken_o = ~op1_i_less_op2_i_signed;   end  // BGE: 有符号大于等于则跳
+                    `INST_BLTU: begin branch_actual_taken_o = op1_i_less_op2_i_unsigned;  end  // BLTU: 无符号小于则跳
+                    `INST_BGEU: begin branch_actual_taken_o = ~op1_i_less_op2_i_unsigned; end  // BGEU: 无符号大于等于则跳
+                    default:    begin branch_actual_taken_o = 1'b0;                       end
                 endcase
+
+                if (branch_actual_taken_o != pred_taken_i) begin
+                    // 误预测
+                    jump_en_o = 1'b1;
+                    if (branch_actual_taken_o)
+                        jump_addr_o = base_addr_add_addr_offset;
+                    else
+                        jump_addr_o = inst_addr_i + 32'd4;
+                end else begin
+                    // 预测正确，无需由于分支导致异常冲刷
+                    jump_en_o = 1'b0;
+                    jump_addr_o = 32'b0;
+                end
             end
 
             // =========================================================
@@ -243,8 +268,16 @@ module ex (
                 rd_data_o   = op1_i_add_op2_i;                    // rd = PC + 4 (返回地址)
                 rd_addr_o   = rd_addr_i;                           // 写回 rd
                 rd_wen_o    = 1'b1;                                // 使能写回
-                jump_addr_o = base_addr_add_addr_offset;           // 跳转地址 = PC + imm
-                jump_en_o   = 1'b1;                                // 触发跳转
+                
+                if (pred_taken_i == 1'b0) begin
+                    // JAL在IF级未预测成功 (可能复位初态气泡等) 时发跳转修正
+                    jump_en_o   = 1'b1;                                
+                    jump_addr_o = base_addr_add_addr_offset;           // 跳转地址 = PC + imm
+                end else begin
+                    // 预测匹配则不再额外触发修正冲刷
+                    jump_en_o   = 1'b0;
+                    jump_addr_o = 32'b0;
+                end
             end
 
             // =========================================================
