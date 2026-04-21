@@ -20,6 +20,7 @@ module id (
     // =================================================================
     input  wire [31:0] inst_i,             // 32 位机器指令
     input  wire [31:0] inst_addr_i,        // 指令对应的 PC 地址
+    input  wire        pred_taken_i,       // 预测是否跳转
 
     // =================================================================
     // 与寄存器堆的接口
@@ -40,7 +41,8 @@ module id (
     output reg         reg_wen,            // 寄存器写使能 (1: 需要写回结果)
     output reg  [31:0] base_addr_o,        // 基地址 (用于访存/跳转地址计算)
     output reg  [31:0] addr_offset_o,      // 地址偏移量 (用于访存/跳转地址计算)
-    output reg         mem_rd_reg_o        // 内存读标记 (1: 这是一条 Load 指令)
+    output reg         mem_rd_reg_o,       // 内存读标记 (1: 这是一条 Load 指令)
+    output reg         pred_taken_o        // 预测是否跳转
 );
 
     // =================================================================
@@ -68,6 +70,7 @@ module id (
         inst_o        = inst_i;            // 直接透传指令
         inst_addr_o   = inst_addr_i;       // 直接透传 PC 地址
         mem_rd_reg_o  = 1'b0;              // 默认: 不是 Load 指令
+        pred_taken_o  = pred_taken_i;      // 直接透传预测是否跳转
 
         // -------------------------------------------------------------
         // 按 Opcode 分支译码

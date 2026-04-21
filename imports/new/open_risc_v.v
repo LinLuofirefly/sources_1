@@ -32,14 +32,28 @@ module open_risc_v (
 
     wire        ctrl_flush_exmem1_o;       // 冲刷信号: EX/MEM1 (延迟一拍)
 
-    // --- HDU (冒险检测单�? 输出 ---
+    // --- HDU (冒险检测单? 输出 ---
 
-    wire        hdu_hold_flag_o;           // 冻结信号: 冻结 PC �?IF/ID
+    wire        hdu_hold_flag_o;           // 冻结信号: 冻结 PC ?IF/ID
 
-    wire        hdu_flush_flag_o;          // 冲刷信号: 清空 ID/EX (�?NOP)
+    wire        hdu_flush_flag_o;          // 冲刷信号: 清空 ID/EX (?NOP)
 
     // =================================================================
-    // 1. IF �?�?ID �? 级间线网
+    // 0b. 分支预测线网
+    // =================================================================
+    wire        bp_pred_taken;
+    wire [31:0] bp_pred_target;
+    wire        bp_pred_flush;
+
+    wire        ex_branch_update_en;
+    wire [31:0] ex_branch_update_pc;
+    wire        ex_branch_actual_taken;
+
+    wire        if_id_pred_taken_o;
+    wire        id_ex_pred_taken_o;
+    wire        id_pred_taken_o;
+    // =================================================================
+    // 1. IF ??ID ? 级间线网
     // =================================================================
 
     wire [31:0] if_id_inst_addr_o;         // IF/ID 输出的指令地址
@@ -67,12 +81,12 @@ module open_risc_v (
     wire [31:0] id_base_addr_o;            
     wire [31:0] id_addr_offset_o;          
     wire        data_read_en;              
-
+               
     // =================================================================
     // 3. 寄存器堆读出数据
     // =================================================================
 
-    wire [31:0] regs_reg1_rdata_o;         // Regfile 读端�?1 数据
+    wire [31:0] regs_reg1_rdata_o;         // Regfile 读端?1 数据
 
     wire [31:0] regs_reg2_rdata_o;         // Regfile 读端�?2 数据
 
@@ -234,7 +248,27 @@ module open_risc_v (
         .jump_en     (ctrl_jump_en_o),
         .jump_addr_i (ctrl_jump_addr_o),
         .hold_flag_i (hdu_hold_flag_o),
+        .pred_en     (bp_pred_taken),
+        .pred_addr   (bp_pred_target),
         .pc_o        (pc_reg_pc_o)
+    );
+
+    // -----------------------------------------------------------------
+    // 1b. 分支预测器 (Branch Predictor)
+    // -----------------------------------------------------------------
+    branch_predictor bp_inst (
+        .clk             (clk),
+        .rst             (rst),
+        .if_inst_i       (inst_i),        
+        .if_pc_i         (pc_reg_pc_o),   
+        .hold_flag_i     (hdu_hold_flag_o),
+        .flush_flag_i    (ctrl_flush_ifid_o), 
+        .pred_taken_o    (bp_pred_taken),
+        .pred_target_o   (bp_pred_target),
+        .pred_flush_o    (bp_pred_flush),
+        .update_en_i     (ex_branch_update_en),
+        .update_pc_i     (ex_branch_update_pc),
+        .actual_taken_i  (ex_branch_actual_taken)
     );
 
     // -----------------------------------------------------------------
@@ -249,7 +283,10 @@ module open_risc_v (
         .inst_addr_o  (if_id_inst_addr_o),
         .inst_o       (if_id_inst_o),
         .hold_flag_i  (hdu_hold_flag_o),
-        .flush_flag_i (ctrl_flush_ifid_o)
+        .flush_flag_i (ctrl_flush_ifid_o),
+        .pred_flush_i (bp_pred_flush),
+        .pred_taken_i (bp_pred_taken),
+        .pred_taken_o (if_id_pred_taken_o)
     );
 
     // -----------------------------------------------------------------
@@ -286,7 +323,9 @@ module open_risc_v (
         .reg_wen       (id_reg_wen),
         .base_addr_o   (id_base_addr_o),
         .addr_offset_o (id_addr_offset_o),
-        .mem_rd_reg_o  (data_read_en)
+        .mem_rd_reg_o  (data_read_en),
+        .pred_taken_i (if_id_pred_taken_o),
+        .pred_taken_o (id_pred_taken_o)
     );
 
     // -----------------------------------------------------------------
@@ -307,6 +346,7 @@ module open_risc_v (
         .reg_wen_i     (id_reg_wen),
         .base_addr_i   (id_base_addr_o),
         .addr_offset_i (id_addr_offset_o),
+        .pred_taken_i  (id_pred_taken_o),
         .inst_o        (id_ex_inst_o),
         .inst_addr_o   (id_ex_inst_addr_o),
         .op1_o         (id_ex_op1_o),
@@ -314,7 +354,8 @@ module open_risc_v (
         .rd_addr_o     (id_ex_rd_addr_o),
         .reg_wen_o     (id_ex_reg_wen),
         .base_addr_o   (id_ex_base_addr_o),
-        .addr_offset_o (id_ex_addr_offset_o)
+        .addr_offset_o (id_ex_addr_offset_o),
+        .pred_taken_o  (id_ex_pred_taken_o)
     );
 
     // -----------------------------------------------------------------
@@ -379,7 +420,11 @@ module open_risc_v (
         .mem_wd_data_o (ex_wd_data_o),
         .mem_rd_addr_o (ex_rd_mem_addr_o),
         .is_load_o     (ex_is_load_o),
-        .inst_o        (ex_inst_o)
+        .inst_o        (ex_inst_o),
+        .pred_taken_i          (id_ex_pred_taken_o),
+        .branch_update_en_o    (ex_branch_update_en),
+        .branch_update_pc_o    (ex_branch_update_pc),
+        .branch_actual_taken_o (ex_branch_actual_taken)
     );
 
     // -----------------------------------------------------------------

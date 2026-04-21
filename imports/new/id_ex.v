@@ -20,6 +20,7 @@ module id_ex (
     input  wire        flush_flag_i,       // 冲刷信号: Load-Use 或跳转时清空
 
     // --- 从 ID 级接收的输入 ---
+    input  wire        pred_taken_i,       // 预测的分支状态
     input  wire [31:0] inst_i,             // 指令机器码
     input  wire [31:0] inst_addr_i,        // 指令 PC 地址
     input  wire [31:0] op1_i,              // ALU 操作数 1
@@ -30,6 +31,7 @@ module id_ex (
     input  wire [31:0] addr_offset_i,      // 地址偏移量
 
     // --- 打一拍后输出给 EX 级 ---
+    output wire        pred_taken_o,       // 预测的分支状态
     output wire [31:0] inst_o,             // 指令机器码
     output wire [31:0] inst_addr_o,        // 指令 PC 地址
     output wire [31:0] op1_o,              // ALU 操作数 1
@@ -51,5 +53,6 @@ module id_ex (
     dff_set #(1)  dff_reg_wen     (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      reg_wen_i,     reg_wen_o);
     dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, 1'b0,        32'b0,     base_addr_i,   base_addr_o);
     dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, 1'b0,        32'b0,     addr_offset_i, addr_offset_o);
+    dff_set #(1)  dff_pred_taken  (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      pred_taken_i,  pred_taken_o);
 
 endmodule
