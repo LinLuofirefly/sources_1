@@ -218,7 +218,16 @@ module open_risc_v (
     // =================================================================
     assign mem_rd_reg_o  = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
     assign mem_rd_addr_o = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
- 
+
+    // Synchronous IROM returns data one cycle after address.
+    // Delay PC by one cycle so predictor sees a PC aligned with inst_i.
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            if_inst_pc_aligned <= 32'h8000_0000;
+        end else begin
+            if_inst_pc_aligned <= pc_reg_pc_o;
+        end
+    end
 
     // *************************************************************************************************
     // 模块例化 (Module Instantiations)
