@@ -25,14 +25,9 @@ module if_id (
     input  wire [31:0] inst_addr_i,        // 来自 PC 寄存器的指令地址
     input  wire        hold_flag_i,        // 冻结信号: Load-Use 冒险时为 1
     input  wire        flush_flag_i,       // 冲刷信号: 跳转时为 1
-    input  wire        pred_flush_i,       // 预测冲刷幽灵指令信号
-    input  wire        pred_taken_i,       // 当前指令的分支预测状态
     output wire [31:0] inst_addr_o,        // 输出给 ID 级的指令地址
-    output reg  [31:0] inst_o,             // 输出给 ID 级的指令机器码
-    output wire        pred_taken_o        // 输出给 ID 级的分支预测状态
+    output reg  [31:0] inst_o              // 输出给 ID 级的指令机器码
 );
-
-    wire combined_flush = flush_flag_i | pred_flush_i;
 
     // =================================================================
     //  Skid Buffer: 指令防滑缓冲器
@@ -43,7 +38,7 @@ module if_id (
 
     // --- 缓冲控制逻辑 (时序) ---
     always @(posedge clk) begin
-        if (rst == 1'b0 || combined_flush == 1'b1) begin
+        if (rst == 1'b0 || flush_flag_i == 1'b1) begin
             hold_inst_reg  <= 32'b0;       // 复位/冲刷: 清空缓冲
             is_holding_reg <= 1'b0;        // 清除状态标记
         end
@@ -60,7 +55,7 @@ module if_id (
 
     // --- 指令输出路由选择 (组合逻辑) ---
     always @(*) begin
-        if (rst == 1'b0 || combined_flush == 1'b1) begin
+        if (rst == 1'b0 || flush_flag_i == 1'b1) begin
             inst_o = `INST_NOP;            // 复位/冲刷: 输出 NOP 气泡
         end
         else if (is_holding_reg == 1'b1) begin
@@ -80,16 +75,6 @@ module if_id (
         32'b0,                             // 复位默认值
         inst_addr_i,                       // 输入地址
         inst_addr_o                        // 输出地址
-    );
-
-    // --- 预测信号透传: 使用 dff_set 打一拍传递 ---
-    dff_set #(1) dff_pred_taken (
-        clk, rst,
-        hold_flag_i,                       // Stall 时冻结地址
-        combined_flush,                    // 冲刷时清零
-        1'b0,                              // 复位默认值
-        pred_taken_i,                      // 输入预测状态
-        pred_taken_o                       // 输出预测状态
     );
 
 endmodule

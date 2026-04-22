@@ -20,7 +20,6 @@ module id_ex (
     input  wire        flush_flag_i,       // 冲刷信号: Load-Use 或跳转时清空
 
     // --- 从 ID 级接收的输入 ---
-    input  wire        pred_taken_i,       // 预测的分支状态
     input  wire [31:0] inst_i,             // 指令机器码
     input  wire [31:0] inst_addr_i,        // 指令 PC 地址
     input  wire [31:0] op1_i,              // ALU 操作数 1
@@ -31,7 +30,6 @@ module id_ex (
     input  wire [31:0] addr_offset_i,      // 地址偏移量
 
     // --- 打一拍后输出给 EX 级 ---
-    output wire        pred_taken_o,       // 预测的分支状态
     output wire [31:0] inst_o,             // 指令机器码
     output wire [31:0] inst_addr_o,        // 指令 PC 地址
     output wire [31:0] op1_o,              // ALU 操作数 1
@@ -42,17 +40,15 @@ module id_ex (
     output wire [31:0] addr_offset_o       // 地址偏移量
 );
 
-    // 时序优化:
-    // 仅对 inst/reg_wen 使用 flush 以插入气泡并屏蔽副作用，
-    // 其余宽数据总线不参与 flush 组合，降低关键路径负担。
+    // Flush 需要把整拍有效载荷一起清空，否则 NOP 气泡仍可能携带旧操作数/
+    // 旧目的寄存器号进入后级，继续参与前递或伪造写回。
     dff_set #(32) dff_inst        (clk, rst, hold_flag_i, flush_flag_i, `INST_NOP, inst_i,        inst_o);
-    dff_set #(32) dff_inst_addr   (clk, rst, hold_flag_i, 1'b0,        32'b0,     inst_addr_i,   inst_addr_o);
-    dff_set #(32) dff_op1         (clk, rst, hold_flag_i, 1'b0,        32'b0,     op1_i,         op1_o);
-    dff_set #(32) dff_op2         (clk, rst, hold_flag_i, 1'b0,        32'b0,     op2_i,         op2_o);
-    dff_set #(5)  dff_rd_addr     (clk, rst, hold_flag_i, 1'b0,        5'b0,      rd_addr_i,     rd_addr_o);
+    dff_set #(32) dff_inst_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     inst_addr_i,   inst_addr_o);
+    dff_set #(32) dff_op1         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op1_i,         op1_o);
+    dff_set #(32) dff_op2         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op2_i,         op2_o);
+    dff_set #(5)  dff_rd_addr     (clk, rst, hold_flag_i, flush_flag_i, 5'b0,      rd_addr_i,     rd_addr_o);
     dff_set #(1)  dff_reg_wen     (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      reg_wen_i,     reg_wen_o);
-    dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, 1'b0,        32'b0,     base_addr_i,   base_addr_o);
-    dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, 1'b0,        32'b0,     addr_offset_i, addr_offset_o);
-    dff_set #(1)  dff_pred_taken  (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      pred_taken_i,  pred_taken_o);
+    dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     base_addr_i,   base_addr_o);
+    dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     addr_offset_i, addr_offset_o);
 
 endmodule

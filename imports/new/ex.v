@@ -28,7 +28,6 @@ module ex (
     input  wire [31:0] op2_i,              // 操作数 2 (经前递修正)
     input  wire [4:0]  rd_addr_i,          // 目标寄存器地址
     input  wire        rd_wen_i,           // 寄存器写使能
-    input  wire        pred_taken_i,       // 该指令在 IF 级的预测结果
 
     // =================================================================
     // 输出: 写回通道 (送往 EX/MEM1 流水线寄存器)
@@ -38,15 +37,10 @@ module ex (
     output reg         rd_wen_o,           // 寄存器写使能
 
     // =================================================================
-    // 输出: 跳转控制 (送往 CTRL 控制器/BHT 控制器)
+    // 输出: 跳转控制 (送往 CTRL 控制器)
     // =================================================================
-    output reg  [31:0] jump_addr_o,        // 误预判的修正地址
-    output reg         jump_en_o,          // 跳转使能 (1: 误预判导致修正)
-    
-    // BHT 更新输出
-    output reg         branch_update_en_o,    // BHT 更新使能
-    output reg  [31:0] branch_update_pc_o,    // BHT 更新的分支 PC
-    output reg         branch_actual_taken_o, // 实际跳转结果
+    output reg  [31:0] jump_addr_o,        // 跳转目标地址
+    output reg         jump_en_o,          // 跳转使能 (1: 需要跳转)
 
     // =================================================================
     // 输出: 指令透传
@@ -121,9 +115,6 @@ module ex (
         mem_wd_data_o = 32'b0;
         is_load_o     = 1'b0;
         mem_rd_addr_o = 32'b0;
-        branch_update_en_o    = 1'b0;
-        branch_update_pc_o    = 32'b0;
-        branch_actual_taken_o = 1'b0;
 
         case (opcode)
 
@@ -132,13 +123,13 @@ module ex (
             // =========================================================
             `INST_TYPE_I: begin
                 case (func3)
-                    `INST_ADDI:  begin rd_data_o = op1_i_add_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // ADDI
-                    `INST_SLTI:  begin rd_data_o = {31'b0, op1_i_less_op2_i_signed};   rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLTI
-                    `INST_SLTIU: begin rd_data_o = {31'b0, op1_i_less_op2_i_unsigned}; rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLTIU
-                    `INST_ANDI:  begin rd_data_o = op1_i_and_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // ANDI
-                    `INST_ORI:   begin rd_data_o = op1_i_or_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // ORI
-                    `INST_XORI:  begin rd_data_o = op1_i_xor_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // XORI
-                    `INST_SLLI:  begin rd_data_o = op1_i_shift_left_op2_i;             rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLLI
+                    `INST_ADDI:  begin rd_data_o = op1_i_add_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // ADDI
+                    `INST_SLTI:  begin rd_data_o = {31'b0, op1_i_less_op2_i_signed};   rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLTI
+                    `INST_SLTIU: begin rd_data_o = {31'b0, op1_i_less_op2_i_unsigned}; rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLTIU
+                    `INST_ANDI:  begin rd_data_o = op1_i_and_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // ANDI
+                    `INST_ORI:   begin rd_data_o = op1_i_or_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // ORI
+                    `INST_XORI:  begin rd_data_o = op1_i_xor_op2_i;                    rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // XORI
+                    `INST_SLLI:  begin rd_data_o = op1_i_shift_left_op2_i;             rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLLI
                     `INST_SRI: begin
                         if (func7[5] == 1'b0) begin
                             // SRLI: 逻辑右移，高位补 0
@@ -148,7 +139,7 @@ module ex (
                             rd_data_o = (op1_i_shift_right_op2_i & SRA_mask) | ({32{op1_i[31]}} & ~SRA_mask);
                         end
                         rd_addr_o = rd_addr_i;
-                        rd_wen_o  = 1'b1;
+                        rd_wen_o  = rd_wen_i;
                     end
                     default: begin rd_data_o = 32'b0; rd_addr_o = 5'b0; rd_wen_o = 1'b0; end
                 endcase
@@ -165,14 +156,14 @@ module ex (
                         end else begin
                             rd_data_o = op1_i - op2_i;                // SUB
                         end
-                        rd_addr_o = rd_addr_i; rd_wen_o = 1'b1;
+                        rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i;
                     end
-                    `INST_SLL:  begin rd_data_o = op1_i_shift_left_op2_i;              rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLL
-                    `INST_SLT:  begin rd_data_o = {31'b0, op1_i_less_op2_i_signed};    rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLT
-                    `INST_SLTU: begin rd_data_o = {31'b0, op1_i_less_op2_i_unsigned};  rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // SLTU
-                    `INST_OR:   begin rd_data_o = op1_i_or_op2_i;                      rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // OR
-                    `INST_XOR:  begin rd_data_o = op1_i_xor_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // XOR
-                    `INST_AND:  begin rd_data_o = op1_i_and_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = 1'b1; end  // AND
+                    `INST_SLL:  begin rd_data_o = op1_i_shift_left_op2_i;              rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLL
+                    `INST_SLT:  begin rd_data_o = {31'b0, op1_i_less_op2_i_signed};    rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLT
+                    `INST_SLTU: begin rd_data_o = {31'b0, op1_i_less_op2_i_unsigned};  rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // SLTU
+                    `INST_OR:   begin rd_data_o = op1_i_or_op2_i;                      rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // OR
+                    `INST_XOR:  begin rd_data_o = op1_i_xor_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // XOR
+                    `INST_AND:  begin rd_data_o = op1_i_and_op2_i;                     rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i; end  // AND
                     `INST_SR: begin
                         if (func7[5] == 1'b0) begin
                             rd_data_o = op1_i_shift_right_op2_i;      // SRL: 逻辑右移
@@ -180,7 +171,7 @@ module ex (
                             // SRA: 算术右移
                             rd_data_o = (op1_i_shift_right_op2_i & SRA_mask) | ({32{op1_i[31]}} & ~SRA_mask);
                         end
-                        rd_addr_o = rd_addr_i; rd_wen_o = 1'b1;
+                        rd_addr_o = rd_addr_i; rd_wen_o = rd_wen_i;
                     end
                     default: begin rd_data_o = 32'b0; rd_addr_o = 5'b0; rd_wen_o = 1'b0; end
                 endcase
@@ -191,31 +182,15 @@ module ex (
             // 跳转目标地址 = base_addr (PC) + addr_offset (立即数)
             // =========================================================
             `INST_TYPE_B: begin
-                branch_update_en_o = 1'b1;
-                branch_update_pc_o = inst_addr_i;
-
                 case (func3)
-                    `INST_BNE:  begin branch_actual_taken_o = ~op1_i_equal_op2_i;         end  // BNE: 不等则跳
-                    `INST_BEQ:  begin branch_actual_taken_o = op1_i_equal_op2_i;          end  // BEQ: 相等则跳
-                    `INST_BLT:  begin branch_actual_taken_o = op1_i_less_op2_i_signed;    end  // BLT: 有符号小于则跳
-                    `INST_BGE:  begin branch_actual_taken_o = ~op1_i_less_op2_i_signed;   end  // BGE: 有符号大于等于则跳
-                    `INST_BLTU: begin branch_actual_taken_o = op1_i_less_op2_i_unsigned;  end  // BLTU: 无符号小于则跳
-                    `INST_BGEU: begin branch_actual_taken_o = ~op1_i_less_op2_i_unsigned; end  // BGEU: 无符号大于等于则跳
-                    default:    begin branch_actual_taken_o = 1'b0;                       end
+                    `INST_BNE:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_equal_op2_i;         end  // BNE: 不等则跳
+                    `INST_BEQ:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_equal_op2_i;          end  // BEQ: 相等则跳
+                    `INST_BLT:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_less_op2_i_signed;    end  // BLT: 有符号小于则跳
+                    `INST_BGE:  begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_less_op2_i_signed;   end  // BGE: 有符号大于等于则跳
+                    `INST_BLTU: begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = op1_i_less_op2_i_unsigned;  end  // BLTU: 无符号小于则跳
+                    `INST_BGEU: begin jump_addr_o = base_addr_add_addr_offset; jump_en_o = ~op1_i_less_op2_i_unsigned; end  // BGEU: 无符号大于等于则跳
+                    default:    begin jump_addr_o = 32'b0;                     jump_en_o = 1'b0;                       end
                 endcase
-
-                if (branch_actual_taken_o != pred_taken_i) begin
-                    // 误预测
-                    jump_en_o = 1'b1;
-                    if (branch_actual_taken_o)
-                        jump_addr_o = base_addr_add_addr_offset;
-                    else
-                        jump_addr_o = inst_addr_i + 32'd4;
-                end else begin
-                    // 预测正确，无需由于分支导致异常冲刷
-                    jump_en_o = 1'b0;
-                    jump_addr_o = 32'b0;
-                end
             end
 
             // =========================================================
@@ -224,7 +199,7 @@ module ex (
             `INST_TYPE_L: begin
                 is_load_o     = 1'b1;                              // 标记: Load 指令
                 rd_addr_o     = rd_addr_i;                         // 设置写回目标寄存器
-                rd_wen_o      = 1'b1;                              // 使能写回
+                rd_wen_o      = rd_wen_i;                          // 使能写回
                 mem_rd_addr_o = base_addr_add_addr_offset;         // 计算内存读地址 = rs1 + imm
             end
 
@@ -267,17 +242,9 @@ module ex (
             `INST_JAL: begin
                 rd_data_o   = op1_i_add_op2_i;                    // rd = PC + 4 (返回地址)
                 rd_addr_o   = rd_addr_i;                           // 写回 rd
-                rd_wen_o    = 1'b1;                                // 使能写回
-                
-                if (pred_taken_i == 1'b0) begin
-                    // JAL在IF级未预测成功 (可能复位初态气泡等) 时发跳转修正
-                    jump_en_o   = 1'b1;                                
-                    jump_addr_o = base_addr_add_addr_offset;           // 跳转地址 = PC + imm
-                end else begin
-                    // 预测匹配则不再额外触发修正冲刷
-                    jump_en_o   = 1'b0;
-                    jump_addr_o = 32'b0;
-                end
+                rd_wen_o    = rd_wen_i;                            // 使能写回
+                jump_addr_o = base_addr_add_addr_offset;           // 跳转地址 = PC + imm
+                jump_en_o   = 1'b1;                                // 触发跳转
             end
 
             // =========================================================
@@ -286,7 +253,7 @@ module ex (
             `INST_JALR: begin
                 rd_data_o   = inst_addr_i + 32'd4;                // rd = PC + 4 (返回地址)
                 rd_addr_o   = rd_addr_i;                           // 写回 rd
-                rd_wen_o    = 1'b1;                                // 使能写回
+                rd_wen_o    = rd_wen_i;                            // 使能写回
                 jump_addr_o = base_addr_add_addr_offset & ~32'd1;  // 跳转地址 = (rs1+imm) & ~1
                 jump_en_o   = 1'b1;                                // 触发跳转
             end
@@ -297,7 +264,7 @@ module ex (
             `INST_AUIPC: begin
                 rd_data_o   = op1_i_add_op2_i;                    // rd = PC + (imm << 12)
                 rd_addr_o   = rd_addr_i;                           // 写回 rd
-                rd_wen_o    = 1'b1;                                // 使能写回
+                rd_wen_o    = rd_wen_i;                            // 使能写回
                 jump_addr_o = 32'b0;                               // 不跳转
                 jump_en_o   = 1'b0;
             end
@@ -308,7 +275,7 @@ module ex (
             `INST_LUI: begin
                 rd_data_o   = op1_i;                               // rd = imm << 12 (由 ID 级组装)
                 rd_addr_o   = rd_addr_i;                           // 写回 rd
-                rd_wen_o    = 1'b1;                                // 使能写回
+                rd_wen_o    = rd_wen_i;                            // 使能写回
                 jump_addr_o = 32'b0;                               // 不跳转
                 jump_en_o   = 1'b0;
             end

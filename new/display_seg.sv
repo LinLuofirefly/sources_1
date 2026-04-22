@@ -30,7 +30,7 @@ module display_seg (
     output logic [6:0]    seg4   ,
     output logic [7:0]    ans
 );
-    logic  [4:0]   count;
+    logic  [4:0]  count;
     logic  [3:0]   digit1, digit2, digit3, digit4; 
 
     always@(posedge clk or posedge rst) begin
@@ -40,6 +40,7 @@ module display_seg (
             count <= count + 1;
     end
        
+    // Use a higher counter bit to keep scan rate stable for host sampling.
     always @(*)
     case(count[4])
         0: begin
@@ -56,6 +57,13 @@ module display_seg (
             digit2 = s[11:8];
             digit3 = s[19:16];
             digit4 = s[27:24];
+        end
+        default: begin
+            ans = 8'b11111111;
+            digit1 = 4'b0000;
+            digit2 = 4'b0000;
+            digit3 = 4'b0000;
+            digit4 = 4'b0000;
         end
 
     endcase

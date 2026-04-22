@@ -4,8 +4,6 @@ module pc_reg (
     input  wire        hold_flag_i,        
     input  wire [31:0] jump_addr_i,        
     input  wire        jump_en,            
-    input  wire        pred_en,            // 分支预测使能
-    input  wire [31:0] pred_addr,          // 预测目标地址
     
     // 魔法原语依然保留：严禁 Vivado 动用 CE 引脚
     (* extract_enable = "no" *) output reg  [31:0] pc_o               
@@ -23,8 +21,6 @@ module pc_reg (
             next_pc = jump_addr_i;
         end else if (hold_flag_i == 1'b1) begin
             next_pc = pc_o;
-        end else if (pred_en == 1'b1) begin
-            next_pc = pred_addr;
         end else begin
             next_pc = pc_o + 32'd4;
         end
