@@ -28,8 +28,8 @@ module ctrl (
 
     // IF/ID and ID/EX need immediate flush for current wrong-path instructions,
     // plus one delayed flush for synchronous IROM ghost output.
-    assign flush_ifid_o   = jump_en_i | jump_en_d1;
-    assign flush_idex_o   = jump_en_i | jump_en_d1;
+    assign flush_ifid_o   = jump_en_d1;
+    assign flush_idex_o   = jump_en_d1;
 
     // Keep EX/MEM1 delayed only, avoid killing the real jump instruction itself.
     assign flush_exmem1_o = jump_en_d1;
