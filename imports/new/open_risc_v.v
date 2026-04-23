@@ -330,9 +330,6 @@ module open_risc_v (
         .ex_mem_rd_data_i    (ex_mem_rd_data_o),
         .ex_mem_rd_wen_i     (ex_mem_rd_wen_o),
         .ex_mem_is_load_i    (ex_mem_is_load_o),
-        .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
-        .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
-        .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
         .mem2_rd_addr_i      (mem2_rd_addr_o),
         .mem2_rd_data_i      (mem2_rd_data_o),
         .mem2_rd_wen_i       (mem2_rd_wen_o),
@@ -355,7 +352,6 @@ module open_risc_v (
         .mem1_inst_i  (mem_inst_o),
         .mem1_mem2_inst_i (mem1_mem2_inst_o),
         .mem2a_inst_i (mem2_align_inst_o),
-        .mem2_inst_i  (mem2_inst_o),
         .hold_flag_o  (hdu_hold_flag_o),
         .flush_flag_o (hdu_flush_flag_o)
     );
