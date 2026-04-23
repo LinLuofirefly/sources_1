@@ -11,6 +11,7 @@ module dram_driver(
 );
     logic        perip_wen;
     logic [31:0] dram_data;
+    logic [31:0] dram_rdata_q1;
     logic [15:0] rd_addr, wr_addr;
 
     assign rd_addr  = perip_rd_addr[17:2];
@@ -27,9 +28,16 @@ module dram_driver(
         .clkb   (clk),
         .addrb  (rd_addr),
         .dinb   (32'b0),
-        .doutb  (perip_rdata),
+        .doutb  (dram_rdata_q1),
         .enb    (perip_rd_en),
         .web    (4'b0)
     );
+
+    // The Vivado BRAM IP already has a registered Port B output.
+    // Keep one more register here so the whole DRAM read path still
+    // matches the CPU/perip_bridge two-cycle latency assumption.
+    always_ff @(posedge clk) begin
+        perip_rdata <= dram_rdata_q1;
+    end
 
 endmodule
