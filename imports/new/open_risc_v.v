@@ -30,8 +30,6 @@ module open_risc_v (
 
     wire        ctrl_flush_idex_o;         // 冲刷信号: ID/EX (寄存化)
 
-    wire        ctrl_flush_exmem1_o;       // 冲刷信号: EX/MEM1 (延迟一拍)
-
     // --- HDU (冒险检测单�? 输出 ---
 
     wire        hdu_hold_flag_o;           // 冻结信号: 冻结 PC �?IF/ID
@@ -373,6 +371,7 @@ module open_risc_v (
         .op2_i         (fwd_op2_o),
         .rd_addr_i     (id_ex_rd_addr_o),
         .rd_wen_i      (id_ex_reg_wen),
+        .kill_i        (ctrl_kill_ex_o),
         .base_addr_i   (fwd_base_addr_o),
         .addr_offset_i (fwd_addr_offset_o),
         .rd_addr_o     (ex_rd_addr_o),
@@ -398,9 +397,9 @@ module open_risc_v (
         .jump_en_i    (ex_jump_en_o),
         .jump_en_o    (ctrl_jump_en_o),
         .jump_addr_o  (ctrl_jump_addr_o),
+        .kill_ex_o    (ctrl_kill_ex_o),
         .flush_ifid_o (ctrl_flush_ifid_o),
         .flush_idex_o (ctrl_flush_idex_o),
-        .flush_exmem1_o(ctrl_flush_exmem1_o),
         .flush_flag_o ()
     );
 
@@ -411,7 +410,6 @@ module open_risc_v (
         .clk           (clk),
         .rst           (rst),
         .hold_flag_i   (1'b0),
-        .flush_flag_i  (ctrl_flush_exmem1_o),
         .inst_i        (ex_inst_o),
         .rd_addr_i     (ex_rd_addr_o),
         .rd_data_i     (ex_rd_data_o),

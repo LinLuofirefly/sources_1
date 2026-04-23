@@ -28,6 +28,7 @@ module ex (
     input  wire [31:0] op2_i,              // 操作数 2 (经前递修正)
     input  wire [4:0]  rd_addr_i,          // 目标寄存器地址
     input  wire        rd_wen_i,           // 寄存器写使能
+    input  wire        kill_i,
 
     // =================================================================
     // 输出: 写回通道 (送往 EX/MEM1 流水线寄存器)
@@ -98,7 +99,7 @@ module ex (
     wire [31:0] base_addr_add_addr_offset = base_addr_i + addr_offset_i;  // 目标地址
 
     // 指令码直接透传
-    assign inst_o = inst_i;
+    assign inst_o = kill_i ? `INST_NOP : inst_i;
 
     // =================================================================
     // 执行级主控逻辑 (组合逻辑)
@@ -116,6 +117,7 @@ module ex (
         is_load_o     = 1'b0;
         mem_rd_addr_o = 32'b0;
 
+        if (kill_i == 1'b0) begin
         case (opcode)
 
             // =========================================================
@@ -295,6 +297,7 @@ module ex (
             end
 
         endcase
+        end
     end
 
 endmodule
