@@ -5,9 +5,11 @@ module if_id (
     input  wire        rst,
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
+    input  wire        pred_taken_i,
     input  wire        hold_flag_i,
     input  wire        flush_flag_i,
-    output wire [31:0] inst_addr_o,
+    output reg  [31:0] inst_addr_o,
+    output reg         pred_taken_o,
     output reg  [31:0] inst_o
 );
 
@@ -28,22 +30,18 @@ module if_id (
 
     always @(*) begin
         if (rst == 1'b0 || flush_flag_i == 1'b1) begin
+            inst_addr_o = 32'b0;
             inst_o = `INST_NOP;
+            pred_taken_o = 1'b0;
         end else if (is_holding_reg == 1'b1) begin
+            inst_addr_o = inst_addr_i;
             inst_o = hold_inst_reg;
+            pred_taken_o = pred_taken_i;
         end else begin
+            inst_addr_o = inst_addr_i;
             inst_o = inst_i;
+            pred_taken_o = pred_taken_i;
         end
     end
-
-    dff_set #(32) dff_inst_addr (
-        clk,
-        rst,
-        hold_flag_i,
-        1'b0,
-        32'b0,
-        inst_addr_i,
-        inst_addr_o
-    );
 
 endmodule
