@@ -32,6 +32,7 @@ module open_risc_v (
     wire        ctrl_flush_idex_o;         // 冲刷信号: ID/EX (寄存化)
 
     wire        bp_pred_taken_o;
+    wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
     wire        bp_pred_flush_o;
     wire [31:0] pc_jump_addr_o;
@@ -231,8 +232,8 @@ module open_risc_v (
     // =================================================================
     assign mem_rd_reg_o   = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
     assign mem_rd_addr_o  = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
-    assign pc_jump_en_o   = ctrl_jump_en_o
-                          | (bp_pred_taken_o & bp_fetch_valid_r & ~hdu_hold_flag_o & ~ctrl_flush_ifid_o);
+    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_fetch_valid_r & ~hdu_hold_flag_o & ~ctrl_flush_ifid_o;
+    assign pc_jump_en_o   = ctrl_jump_en_o | bp_pred_taken_accepted_o;
     assign pc_jump_addr_o = ctrl_jump_en_o ? ctrl_jump_addr_o : bp_pred_target_o;
 
     always @(posedge clk) begin
@@ -291,7 +292,7 @@ module open_risc_v (
         .rst          (rst),
         .inst_i       (inst_i),
         .inst_addr_i  (bp_fetch_pc_r),
-        .pred_taken_i (bp_pred_taken_o),
+        .pred_taken_i (bp_pred_taken_accepted_o),
         .inst_addr_o  (if_id_inst_addr_o),
         .pred_taken_o (if_id_pred_taken_o),
         .inst_o       (if_id_inst_o),
