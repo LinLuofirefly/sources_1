@@ -47,6 +47,9 @@ module tb_student_top;
     integer loop_dbg_count;
     initial loop_dbg_count = 0;
 
+    integer jump_hold_dbg_count;
+    initial jump_hold_dbg_count = 0;
+
     initial begin
         $dumpfile("sim_cpu.vcd");
         $dumpvars(0, tb_student_top);
@@ -107,6 +110,37 @@ module tb_student_top;
                     dut.perip_rdata
                 );
                 loop_dbg_count = loop_dbg_count + 1;
+            end
+
+            if (((dut.Core_cpu.cpu_core.bp_pred_taken_accepted_o || dut.Core_cpu.cpu_core.ctrl_jump_en_o ||
+                  dut.Core_cpu.cpu_core.hdu_hold_flag_o || dut.Core_cpu.cpu_core.ctrl_flush_ifid_o ||
+                  dut.Core_cpu.cpu_core.bp_pred_flush_d1_r) && (jump_hold_dbg_count < 260))) begin
+                $display(
+                    "JH_DBG T=%0t PC=%08h IF_PC=%08h IF_INST=%08h BP_TK=%b BP_ACC=%b BP_TGT=%08h BP_FL_D1=%b | CTRL_J=%b CTRL_JA=%08h EX_J=%b EX_JA=%08h | HOLD=%b HDU_FLUSH=%b CTRL_IFID=%b CTRL_IDEX=%b | IFID_A=%08h IFID_I=%08h IFID_P=%b | IDEX_A=%08h IDEX_I=%08h IDEX_P=%b",
+                    $time,
+                    dut.pc,
+                    dut.Core_cpu.cpu_core.bp_fetch_pc_r,
+                    dut.instruction,
+                    dut.Core_cpu.cpu_core.bp_pred_taken_o,
+                    dut.Core_cpu.cpu_core.bp_pred_taken_accepted_o,
+                    dut.Core_cpu.cpu_core.bp_pred_target_o,
+                    dut.Core_cpu.cpu_core.bp_pred_flush_d1_r,
+                    dut.Core_cpu.cpu_core.ctrl_jump_en_o,
+                    dut.Core_cpu.cpu_core.ctrl_jump_addr_o,
+                    dut.Core_cpu.cpu_core.ex_jump_en_o,
+                    dut.Core_cpu.cpu_core.ex_jump_addr_o,
+                    dut.Core_cpu.cpu_core.hdu_hold_flag_o,
+                    dut.Core_cpu.cpu_core.hdu_flush_flag_o,
+                    dut.Core_cpu.cpu_core.ctrl_flush_ifid_o,
+                    dut.Core_cpu.cpu_core.ctrl_flush_idex_o,
+                    dut.Core_cpu.cpu_core.if_id_inst_addr_o,
+                    dut.Core_cpu.cpu_core.if_id_inst_o,
+                    dut.Core_cpu.cpu_core.if_id_pred_taken_o,
+                    dut.Core_cpu.cpu_core.id_ex_inst_addr_o,
+                    dut.Core_cpu.cpu_core.id_ex_inst_o,
+                    dut.Core_cpu.cpu_core.id_ex_pred_taken_o
+                );
+                jump_hold_dbg_count = jump_hold_dbg_count + 1;
             end
         end
     end

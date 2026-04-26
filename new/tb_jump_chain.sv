@@ -99,11 +99,11 @@ module tb_jump_chain;
                  dut.cpu_core.regs_inst.regs[12],
                  dut.cpu_core.regs_inst.regs[31]);
 
-        if (dut.cpu_core.regs_inst.regs[1]  !== 32'h0000_0004) begin $display("FAIL_x1");  $finish; end
+        if (dut.cpu_core.regs_inst.regs[1]  !== 32'h8000_0004) begin $display("FAIL_x1");  $finish; end
         if (dut.cpu_core.regs_inst.regs[3]  !== 32'h0000_0011) begin $display("FAIL_x3");  $finish; end
         if (dut.cpu_core.regs_inst.regs[5]  !== 32'h8000_0034) begin $display("FAIL_x5");  $finish; end
         if (dut.cpu_core.regs_inst.regs[6]  !== 32'h8000_0048) begin $display("FAIL_x6");  $finish; end
-        if (dut.cpu_core.regs_inst.regs[7]  !== 32'h0000_0028) begin $display("FAIL_x7");  $finish; end
+        if (dut.cpu_core.regs_inst.regs[7]  !== 32'h8000_0028) begin $display("FAIL_x7");  $finish; end
         if (dut.cpu_core.regs_inst.regs[9]  !== 32'h0000_0033) begin $display("FAIL_x9");  $finish; end
         if (dut.cpu_core.regs_inst.regs[4]  === 32'h0000_0044) begin $display("FAIL_x4");  $finish; end
         if (dut.cpu_core.regs_inst.regs[10] === 32'h0000_0055) begin $display("FAIL_x10a");$finish; end

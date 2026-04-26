@@ -35,6 +35,7 @@ module open_risc_v (
     wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
     wire        bp_pred_flush_o;
+    reg         bp_pred_flush_d1_r;
     wire [31:0] pc_jump_addr_o;
     wire        pc_jump_en_o;
     reg  [31:0] bp_fetch_pc_r;
@@ -55,6 +56,7 @@ module open_risc_v (
 
     wire [31:0] if_id_inst_o;              // IF/ID 输出的指�?
     wire        if_id_pred_taken_o;
+    wire        if_id_replaying_o;
     // =================================================================
     // 2. ID 级输出线�?    // =================================================================
 
@@ -232,7 +234,8 @@ module open_risc_v (
     // =================================================================
     assign mem_rd_reg_o   = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
     assign mem_rd_addr_o  = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
-    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_fetch_valid_r & ~hdu_hold_flag_o & ~ctrl_flush_ifid_o;
+    wire bp_if_valid = bp_fetch_valid_r & ~bp_pred_flush_d1_r;
+    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_if_valid & ~hdu_hold_flag_o & ~ctrl_flush_ifid_o & ~if_id_replaying_o;
     assign pc_jump_en_o   = ctrl_jump_en_o | bp_pred_taken_accepted_o;
     assign pc_jump_addr_o = ctrl_jump_en_o ? ctrl_jump_addr_o : bp_pred_target_o;
 
@@ -241,10 +244,12 @@ module open_risc_v (
             bp_fetch_pc_r            <= 32'h8000_0000;
             bp_fetch_valid_r         <= 1'b0;
             bp_fetch_valid_pending_r <= 1'b0;
+            bp_pred_flush_d1_r       <= 1'b0;
         end else begin
             bp_fetch_pc_r            <= pc_reg_pc_o;
             bp_fetch_valid_r         <= bp_fetch_valid_pending_r;
             bp_fetch_valid_pending_r <= 1'b1;
+            bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
         end
     end
 
@@ -261,11 +266,11 @@ module open_risc_v (
     branch_predictor branch_predictor_inst (
         .clk            (clk),
         .rst            (rst),
-        .if_valid_i     (bp_fetch_valid_r),
+        .if_valid_i     (bp_if_valid),
         .if_inst_i      (inst_i),
         .if_pc_i        (bp_fetch_pc_r),
         .hold_flag_i    (hdu_hold_flag_o),
-        .flush_flag_i   (ex_jump_en_o | ctrl_flush_ifid_o),
+        .flush_flag_i   (ex_jump_en_o | ctrl_flush_ifid_o | bp_pred_flush_d1_r),
         .pred_taken_o   (bp_pred_taken_o),
         .pred_target_o  (bp_pred_target_o),
         .pred_flush_o   (bp_pred_flush_o),
@@ -296,8 +301,9 @@ module open_risc_v (
         .inst_addr_o  (if_id_inst_addr_o),
         .pred_taken_o (if_id_pred_taken_o),
         .inst_o       (if_id_inst_o),
+        .replaying_o  (if_id_replaying_o),
         .hold_flag_i  (hdu_hold_flag_o),
-        .flush_flag_i (ctrl_flush_ifid_o | bp_pred_flush_o)
+        .flush_flag_i (ctrl_flush_ifid_o | bp_pred_flush_d1_r)
     );
 
     // -----------------------------------------------------------------
@@ -384,6 +390,10 @@ module open_risc_v (
         .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
         .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
         .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
+        .mem2a_rd_addr_i     (mem2_align_rd_addr_o),
+        .mem2a_rd_data_i     (mem2_align_rd_data_o),
+        .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
+        .mem2a_is_load_i     (mem2_align_is_load_o),
         .mem2_rd_addr_i      (mem2_rd_addr_o),
         .mem2_rd_data_i      (mem2_rd_data_o),
         .mem2_rd_wen_i       (mem2_rd_wen_o),
@@ -405,7 +415,6 @@ module open_risc_v (
         .ex_inst_i    (id_ex_inst_o),
         .mem1_inst_i  (mem_inst_o),
         .mem1_mem2_inst_i (mem1_mem2_inst_o),
-        .mem2a_inst_i (mem2_align_inst_o),
         .mem2_inst_i  (mem2_inst_o),
         .hold_flag_o  (hdu_hold_flag_o),
         .flush_flag_o (hdu_flush_flag_o)

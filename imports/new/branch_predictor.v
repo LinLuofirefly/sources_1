@@ -77,8 +77,8 @@ module branch_predictor(
                     end
                 end
                 `INST_JAL: begin
-                    pred_taken_o  = 1'b0;
-                    pred_target_o = 32'b0;
+                    pred_taken_o  = 1'b1;
+                    pred_target_o = if_pc_i + j_imm;
                 end
                 default: begin
                     pred_taken_o  = 1'b0;

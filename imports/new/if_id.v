@@ -10,13 +10,16 @@ module if_id (
     input  wire        flush_flag_i,
     output reg  [31:0] inst_addr_o,
     output reg         pred_taken_o,
-    output reg  [31:0] inst_o
+    output reg  [31:0] inst_o,
+    output wire        replaying_o
 );
 
     reg [31:0] hold_inst_reg;
     reg [31:0] hold_inst_addr_reg;
     reg        hold_pred_taken_reg;
     reg        is_holding_reg;
+
+    assign replaying_o = is_holding_reg;
 
     always @(posedge clk) begin
         if (rst == 1'b0 || flush_flag_i == 1'b1) begin
