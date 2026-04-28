@@ -9,7 +9,6 @@ module ctrl (
     output wire        kill_ex_o,
     (* max_fanout = 32 *) output wire flush_ifid_o,
     (* max_fanout = 32 *) output wire flush_idex_o,
-    (* max_fanout = 32 *) output wire flush_exmem1_o,
     (* max_fanout = 32 *) output wire flush_flag_o
 );
 
@@ -30,7 +29,6 @@ module ctrl (
 
     assign flush_ifid_o   = jump_en_d1;
     assign flush_idex_o   = jump_en_d1;
-    assign flush_exmem1_o = 1'b0;
 
     assign flush_flag_o   = flush_ifid_o;
 

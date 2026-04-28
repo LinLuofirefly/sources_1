@@ -5,6 +5,7 @@ module Hazard_detection_unit (
     input  wire [31:0] ex_inst_i,
     input  wire [31:0] mem1_inst_i,
     input  wire [31:0] mem1_mem2_inst_i,
+    input  wire [31:0] mem2a_inst_i,
     input  wire [31:0] mem2_inst_i,
     output reg         hold_flag_o,
     output reg         flush_flag_o
@@ -43,12 +44,16 @@ module Hazard_detection_unit (
                 hold_flag_o  = 1'b1;
                 flush_flag_o = 1'b1;
             end
-        end else if ((mem1_opcode == `INST_TYPE_L) && (mem1_rd != 5'b0)) begin
+        end
+
+        if ((mem1_opcode == `INST_TYPE_L) && (mem1_rd != 5'b0)) begin
             if ((id_use_rs1 && (mem1_rd == id_rs1)) || (id_use_rs2 && (mem1_rd == id_rs2))) begin
                 hold_flag_o  = 1'b1;
                 flush_flag_o = 1'b1;
             end
-        end else if ((mem1_mem2_opcode == `INST_TYPE_L) && (mem1_mem2_rd != 5'b0)) begin
+        end
+
+        if ((mem1_mem2_opcode == `INST_TYPE_L) && (mem1_mem2_rd != 5'b0)) begin
             if ((id_use_rs1 && (mem1_mem2_rd == id_rs1)) || (id_use_rs2 && (mem1_mem2_rd == id_rs2))) begin
                 hold_flag_o  = 1'b1;
                 flush_flag_o = 1'b1;
