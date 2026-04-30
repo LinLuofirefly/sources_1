@@ -25,6 +25,7 @@ module open_risc_v (
     wire [31:0] ctrl_jump_addr_o;          // 跳转目标地址
 
     wire        ctrl_jump_en_o;            // 跳转使能
+    wire        ctrl_redirect_hold_o;
     wire        ctrl_kill_ex_o;
 
     wire        ctrl_flush_ifid_o;         // 冲刷信号: IF/ID (寄存化)
@@ -57,6 +58,18 @@ module open_risc_v (
     wire [31:0] if_id_inst_o;              // IF/ID 输出的指�?
     wire        if_id_pred_taken_o;
     wire        if_id_replaying_o;
+    wire [6:0]  hdu_id_opcode = if_id_inst_o[6:0];
+    wire [4:0]  hdu_id_rs1    = if_id_inst_o[19:15];
+    wire [4:0]  hdu_id_rs2    = if_id_inst_o[24:20];
+    wire        hdu_id_use_rs1_ex = (hdu_id_opcode == `INST_TYPE_R_M) ||
+                                    (hdu_id_opcode == `INST_TYPE_I)   ||
+                                    (hdu_id_opcode == `INST_TYPE_S)   ||
+                                    (hdu_id_opcode == `INST_TYPE_B)   ||
+                                    (hdu_id_opcode == `INST_TYPE_L)   ||
+                                    (hdu_id_opcode == `INST_JALR);
+    wire        hdu_id_use_rs2_ex = (hdu_id_opcode == `INST_TYPE_R_M) ||
+                                    (hdu_id_opcode == `INST_TYPE_B);
+    wire        hdu_id_use_rs2_store_data = (hdu_id_opcode == `INST_TYPE_S);
     // =================================================================
     // 2. ID 级输出线�?    // =================================================================
 
@@ -78,7 +91,8 @@ module open_risc_v (
     wire        id_reg_wen;                
     wire [31:0] id_base_addr_o;            
     wire [31:0] id_addr_offset_o;          
-    wire        data_read_en;              
+    wire        data_read_en;
+    wire [14:0] id_ctrl_flags_o;
 
     // =================================================================
     // 3. 寄存器堆读出数据
@@ -114,6 +128,7 @@ module open_risc_v (
     wire [31:0] id_ex_base_addr_o;         // ID/EX 输出: 访存基地址
 
     wire [31:0] id_ex_addr_offset_o;       // ID/EX 输出: 地址偏移�?
+    wire [14:0] id_ex_ctrl_flags_o;
     // =================================================================
     // 5. EX 级输出线�?    // =================================================================
 
@@ -207,6 +222,12 @@ module open_risc_v (
     wire [31:0] mem2_align_inst_o;
     wire [31:0] mem2_align_mem_rd_addr_o;
     wire        mem2_align_is_load_o;
+    wire [4:0]  mem2_pre_rd_addr_o;
+    wire [31:0] mem2_pre_rd_data_o;
+    wire        mem2_pre_rd_wen_o;
+    wire [31:0] mem2_pre_inst_o;
+    wire [31:0] mem2_pre_mem_rd_addr_o;
+    wire        mem2_pre_is_load_o;
 
     // =================================================================
     // 9. MEM2 级输出线�?    // =================================================================
@@ -235,7 +256,7 @@ module open_risc_v (
     assign mem_rd_reg_o   = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
     assign mem_rd_addr_o  = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
     wire bp_if_valid = bp_fetch_valid_r & ~bp_pred_flush_d1_r;
-    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_if_valid & ~hdu_hold_flag_o & ~ctrl_flush_ifid_o & ~if_id_replaying_o;
+    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_if_valid & ~hdu_hold_flag_o & ~ctrl_redirect_hold_o & ~ctrl_jump_en_o & ~ctrl_flush_ifid_o & ~if_id_replaying_o;
     assign pc_jump_en_o   = ctrl_jump_en_o | bp_pred_taken_accepted_o;
     assign pc_jump_addr_o = ctrl_jump_en_o ? ctrl_jump_addr_o : bp_pred_target_o;
 
@@ -269,8 +290,8 @@ module open_risc_v (
         .if_valid_i     (bp_if_valid),
         .if_inst_i      (inst_i),
         .if_pc_i        (bp_fetch_pc_r),
-        .hold_flag_i    (hdu_hold_flag_o),
-        .flush_flag_i   (ex_jump_en_o | ctrl_flush_ifid_o | bp_pred_flush_d1_r),
+        .hold_flag_i    (hdu_hold_flag_o | ctrl_redirect_hold_o),
+        .flush_flag_i   (ctrl_jump_en_o | ctrl_flush_ifid_o | bp_pred_flush_d1_r),
         .pred_taken_o   (bp_pred_taken_o),
         .pred_target_o  (bp_pred_target_o),
         .pred_flush_o   (bp_pred_flush_o),
@@ -284,7 +305,7 @@ module open_risc_v (
         .rst         (rst),
         .jump_en     (pc_jump_en_o),
         .jump_addr_i (pc_jump_addr_o),
-        .hold_flag_i (hdu_hold_flag_o),
+        .hold_flag_i (hdu_hold_flag_o | ctrl_redirect_hold_o),
         .pc_o        (pc_reg_pc_o)
     );
 
@@ -302,7 +323,7 @@ module open_risc_v (
         .pred_taken_o (if_id_pred_taken_o),
         .inst_o       (if_id_inst_o),
         .replaying_o  (if_id_replaying_o),
-        .hold_flag_i  (hdu_hold_flag_o),
+        .hold_flag_i  (hdu_hold_flag_o | ctrl_redirect_hold_o),
         .flush_flag_i (ctrl_flush_ifid_o | bp_pred_flush_d1_r)
     );
 
@@ -340,7 +361,8 @@ module open_risc_v (
         .reg_wen       (id_reg_wen),
         .base_addr_o   (id_base_addr_o),
         .addr_offset_o (id_addr_offset_o),
-        .mem_rd_reg_o  (data_read_en)
+        .mem_rd_reg_o  (data_read_en),
+        .ctrl_flags_o  (id_ctrl_flags_o)
     );
 
     // -----------------------------------------------------------------
@@ -362,6 +384,7 @@ module open_risc_v (
         .reg_wen_i     (id_reg_wen),
         .base_addr_i   (id_base_addr_o),
         .addr_offset_i (id_addr_offset_o),
+        .ctrl_flags_i  (id_ctrl_flags_o),
         .inst_o        (id_ex_inst_o),
         .inst_addr_o   (id_ex_inst_addr_o),
         .op1_o         (id_ex_op1_o),
@@ -370,7 +393,8 @@ module open_risc_v (
         .rd_addr_o     (id_ex_rd_addr_o),
         .reg_wen_o     (id_ex_reg_wen),
         .base_addr_o   (id_ex_base_addr_o),
-        .addr_offset_o (id_ex_addr_offset_o)
+        .addr_offset_o (id_ex_addr_offset_o),
+        .ctrl_flags_o  (id_ex_ctrl_flags_o)
     );
 
     // -----------------------------------------------------------------
@@ -395,6 +419,10 @@ module open_risc_v (
         .mem2a_rd_data_i     (mem2_align_rd_data_o),
         .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
         .mem2a_is_load_i     (mem2_align_is_load_o),
+        .mem2b_rd_addr_i     (mem2_pre_rd_addr_o),
+        .mem2b_rd_data_i     (mem2_pre_rd_data_o),
+        .mem2b_rd_wen_i      (mem2_pre_rd_wen_o),
+        .mem2b_is_load_i     (mem2_pre_is_load_o),
         .mem2_rd_addr_i      (mem2_rd_addr_o),
         .mem2_rd_data_i      (mem2_rd_data_o),
         .mem2_rd_wen_i       (mem2_rd_wen_o),
@@ -412,12 +440,19 @@ module open_risc_v (
     //     检�?Load-Use 冒险: 冻结 PC/IF_ID，冲�?ID/EX
     // -----------------------------------------------------------------
     Hazard_detection_unit hdu_inst (
-        .id_inst_i    (if_id_inst_o),
-        .ex_inst_i    (id_ex_inst_o),
-        .mem1_inst_i  (mem_inst_o),
-        .mem1_mem2_inst_i (mem1_mem2_inst_o),
-        .mem2a_inst_i (mem2_align_inst_o),
-        .mem2_inst_i  (mem2_inst_o),
+        .id_rs1_i     (hdu_id_rs1),
+        .id_rs2_i     (hdu_id_rs2),
+        .id_use_rs1_ex_i (hdu_id_use_rs1_ex),
+        .id_use_rs2_ex_i (hdu_id_use_rs2_ex),
+        .id_use_rs2_store_data_i (hdu_id_use_rs2_store_data),
+        .ex_rd_i      (id_ex_rd_addr_o),
+        .ex_is_load_i (id_ex_ctrl_flags_o[2]),
+        .mem1_rd_i    (mem_out_rd_addr_o),
+        .mem1_is_load_i (mem_out_is_load_o),
+        .mem1_mem2_rd_i (mem1_mem2_rd_addr_o),
+        .mem1_mem2_is_load_i (mem1_mem2_is_load_o),
+        .mem2a_rd_i   (mem2_align_rd_addr_o),
+        .mem2a_is_load_i (mem2_align_is_load_o),
         .hold_flag_o  (hdu_hold_flag_o),
         .flush_flag_o (hdu_flush_flag_o)
     );
@@ -432,6 +467,7 @@ module open_risc_v (
         .op1_i         (fwd_op1_o),
         .op2_i         (fwd_op2_o),
         .pred_taken_i  (id_ex_pred_taken_o),
+        .ctrl_flags_i  (id_ex_ctrl_flags_o),
         .rd_addr_i     (id_ex_rd_addr_o),
         .rd_wen_i      (id_ex_reg_wen),
         .kill_i        (ctrl_kill_ex_o),
@@ -461,6 +497,7 @@ module open_risc_v (
         .rst          (rst),
         .jump_addr_i  (ex_jump_addr_o),
         .jump_en_i    (ex_jump_en_o),
+        .redirect_hold_o (ctrl_redirect_hold_o),
         .jump_en_o    (ctrl_jump_en_o),
         .jump_addr_o  (ctrl_jump_addr_o),
         .kill_ex_o    (ctrl_kill_ex_o),
@@ -510,6 +547,24 @@ module open_risc_v (
         .mem_wd_addr_i (ex_mem_wd_addr_o),
         .mem_wd_data_i (ex_mem_wd_data_o),
         .is_load_i     (ex_mem_is_load_o),
+        .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
+        .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
+        .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
+        .mem1_mem2_is_load_i (mem1_mem2_is_load_o),
+        .mem2a_rd_addr_i     (mem2_align_rd_addr_o),
+        .mem2a_rd_data_i     (mem2_align_rd_data_o),
+        .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
+        .mem2a_is_load_i     (mem2_align_is_load_o),
+        .mem2b_rd_addr_i     (mem2_pre_rd_addr_o),
+        .mem2b_rd_data_i     (mem2_pre_rd_data_o),
+        .mem2b_rd_wen_i      (mem2_pre_rd_wen_o),
+        .mem2b_is_load_i     (mem2_pre_is_load_o),
+        .mem2_rd_addr_i      (mem2_rd_addr_o),
+        .mem2_rd_data_i      (mem2_rd_data_o),
+        .mem2_rd_wen_i       (mem2_rd_wen_o),
+        .mem_wb_rd_addr_i    (mem_wb_rd_addr_o),
+        .mem_wb_rd_data_i    (mem_wb_rd_data_o),
+        .mem_wb_rd_wen_i     (mem_wb_rd_wen_o),
         .rd_addr_o     (mem_out_rd_addr_o),
         .rd_data_o     (mem_out_rd_data_o),
         .rd_wen_o      (mem_out_rd_wen_o),
@@ -566,17 +621,36 @@ module open_risc_v (
         .inst_o        (mem2_align_inst_o)
     );
 
-    // -----------------------------------------------------------------
-    // 11. 第二访存�?(MEM2)
-    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
-    // -----------------------------------------------------------------
-    mem2 mem2_inst (
+    mem1_mem2 mem2_pre_inst (
+        .clk           (clk),
+        .rst           (rst),
+        .hold_flag_i   (1'b0),
+        .flush_flag_i  (1'b0),
         .inst_i        (mem2_align_inst_o),
         .rd_addr_i     (mem2_align_rd_addr_o),
         .rd_data_i     (mem2_align_rd_data_o),
         .rd_wen_i      (mem2_align_rd_wen_o),
         .mem_rd_addr_i (mem2_align_mem_rd_addr_o),
         .is_load_i     (mem2_align_is_load_o),
+        .rd_addr_o     (mem2_pre_rd_addr_o),
+        .rd_data_o     (mem2_pre_rd_data_o),
+        .rd_wen_o      (mem2_pre_rd_wen_o),
+        .mem_rd_addr_o (mem2_pre_mem_rd_addr_o),
+        .is_load_o     (mem2_pre_is_load_o),
+        .inst_o        (mem2_pre_inst_o)
+    );
+
+    // -----------------------------------------------------------------
+    // 11. 第二访存�?(MEM2)
+    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
+    // -----------------------------------------------------------------
+    mem2 mem2_inst (
+        .inst_i        (mem2_pre_inst_o),
+        .rd_addr_i     (mem2_pre_rd_addr_o),
+        .rd_data_i     (mem2_pre_rd_data_o),
+        .rd_wen_i      (mem2_pre_rd_wen_o),
+        .mem_rd_addr_i (mem2_pre_mem_rd_addr_o),
+        .is_load_i     (mem2_pre_is_load_o),
         .mem_rd_data_i (ram_data_i),
         .rd_addr_o     (mem2_rd_addr_o),
         .rd_data_o     (mem2_rd_data_o),

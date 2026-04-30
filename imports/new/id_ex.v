@@ -14,6 +14,7 @@ module id_ex (
     input  wire        reg_wen_i,
     input  wire [31:0] base_addr_i,
     input  wire [31:0] addr_offset_i,
+    input  wire [14:0] ctrl_flags_i,
     output wire [31:0] inst_o,
     output wire [31:0] inst_addr_o,
     output wire [31:0] op1_o,
@@ -22,7 +23,8 @@ module id_ex (
     output wire [4:0]  rd_addr_o,
     output wire        reg_wen_o,
     output wire [31:0] base_addr_o,
-    output wire [31:0] addr_offset_o
+    output wire [31:0] addr_offset_o,
+    output wire [14:0] ctrl_flags_o
 );
 
     dff_set #(32) dff_inst        (clk, rst, hold_flag_i, flush_flag_i, `INST_NOP, inst_i,        inst_o);
@@ -34,5 +36,6 @@ module id_ex (
     dff_set #(1)  dff_reg_wen     (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      reg_wen_i,     reg_wen_o);
     dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     base_addr_i,   base_addr_o);
     dff_set #(32) dff_addr_offset (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     addr_offset_i, addr_offset_o);
+    dff_set #(15) dff_ctrl_flags  (clk, rst, hold_flag_i, flush_flag_i, 15'b0,     ctrl_flags_i,  ctrl_flags_o);
 
 endmodule

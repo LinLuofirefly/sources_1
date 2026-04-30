@@ -18,23 +18,30 @@ module dff_set
     input  wire           flush_flag_i,    // Flush 冲刷信号: 为 1 时输出默认值
     input  wire [DW-1:0]  set_data,        // 冲刷/复位时的默认值 (如 NOP 指令码)
     input  wire [DW-1:0]  data_i,          // 正常流通时的数据输入
-    output reg  [DW-1:0]  data_o           // 数据输出
+    output wire [DW-1:0]  data_o           // 数据输出
     );
     (* max_fanout = 32 *) wire internal_flush;
     (* max_fanout = 32 *) wire internal_hold;
+    (* extract_enable = "no" *) reg [DW-1:0] data_r;
+    reg [DW-1:0] next_data;
+
+    assign data_o = data_r;
 
     // 将复杂的 || 逻辑提前算出，并死死钉在内部线网上
     assign internal_flush = (rst == 1'b0) || (flush_flag_i == 1'b1);
     assign internal_hold  = (hold_flag_i == 1'b1);
 
-    always @(posedge clk) begin
+    always @(*) begin
+        next_data = data_r;
         if (internal_flush) begin
-            data_o <= set_data;            // 复位或冲刷: 输出预设默认值 (插入气泡)
-        end else if (internal_hold) begin
-            data_o <= data_o;              // 冻结: 保持输出不变 (流水线暂停)
-        end else begin
-            data_o <= data_i;              // 正常: 锁存输入数据并输出
+            next_data = set_data;
+        end else if (!internal_hold) begin
+            next_data = data_i;
         end
+    end
+
+    always @(posedge clk) begin
+        data_r <= next_data;
     end
 
 endmodule

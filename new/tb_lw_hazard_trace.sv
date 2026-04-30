@@ -10,8 +10,8 @@ module tb_lw_hazard_trace;
     wire [39:0] virtual_seg;
 
     localparam integer CPU_CYCLES_MAX   = 2_000;
-    localparam integer TRACE_START_CYC  = 1_220;
-    localparam integer TRACE_END_CYC    = 1_290;
+    localparam integer TRACE_START_CYC  = 820;
+    localparam integer TRACE_END_CYC    = 880;
 
     integer cycle_count;
 

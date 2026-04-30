@@ -14,27 +14,43 @@ module if_id (
     output wire        replaying_o
 );
 
-    reg [31:0] hold_inst_reg;
-    reg [31:0] hold_inst_addr_reg;
-    reg        hold_pred_taken_reg;
-    reg        is_holding_reg;
+ reg [31:0] hold_inst_reg;
+ reg [31:0] hold_inst_addr_reg;
+ reg        hold_pred_taken_reg;
+ reg        is_holding_reg;
 
+reg [31:0] hold_inst_reg_n;
+reg [31:0] hold_inst_addr_reg_n;
+reg        hold_pred_taken_reg_n;
+reg        is_holding_reg_n;
     assign replaying_o = is_holding_reg;
 
-    always @(posedge clk) begin
+    always @(*) begin
+        hold_inst_reg_n       = hold_inst_reg;
+        hold_inst_addr_reg_n  = hold_inst_addr_reg;
+        hold_pred_taken_reg_n = hold_pred_taken_reg;
+        is_holding_reg_n      = is_holding_reg;
+
         if (rst == 1'b0 || flush_flag_i == 1'b1) begin
-            hold_inst_reg       <= 32'b0;
-            hold_inst_addr_reg  <= 32'b0;
-            hold_pred_taken_reg <= 1'b0;
-            is_holding_reg      <= 1'b0;
+            hold_inst_reg_n       = 32'b0;
+            hold_inst_addr_reg_n  = 32'b0;
+            hold_pred_taken_reg_n = 1'b0;
+            is_holding_reg_n      = 1'b0;
         end else if (hold_flag_i == 1'b1 && is_holding_reg == 1'b0) begin
-            hold_inst_reg       <= inst_i;
-            hold_inst_addr_reg  <= inst_addr_i;
-            hold_pred_taken_reg <= pred_taken_i;
-            is_holding_reg      <= 1'b1;
+            hold_inst_reg_n       = inst_i;
+            hold_inst_addr_reg_n  = inst_addr_i;
+            hold_pred_taken_reg_n = pred_taken_i;
+            is_holding_reg_n      = 1'b1;
         end else if (hold_flag_i == 1'b0) begin
-            is_holding_reg <= 1'b0;
+            is_holding_reg_n = 1'b0;
         end
+    end
+
+    always @(posedge clk) begin
+        hold_inst_reg       <= hold_inst_reg_n;
+        hold_inst_addr_reg  <= hold_inst_addr_reg_n;
+        hold_pred_taken_reg <= hold_pred_taken_reg_n;
+        is_holding_reg      <= is_holding_reg_n;
     end
 
     always @(*) begin

@@ -40,7 +40,8 @@ module id (
     output reg         reg_wen,            // 寄存器写使能 (1: 需要写回结果)
     output reg  [31:0] base_addr_o,        // 基地址 (用于访存/跳转地址计算)
     output reg  [31:0] addr_offset_o,      // 地址偏移量 (用于访存/跳转地址计算)
-    output reg         mem_rd_reg_o        // 内存读标记 (1: 这是一条 Load 指令)
+    output reg         mem_rd_reg_o,       // 内存读标记 (1: 这是一条 Load 指令)
+    output reg  [14:0] ctrl_flags_o
 );
 
     // =================================================================
@@ -68,6 +69,7 @@ module id (
         inst_o        = inst_i;            // 直接透传指令
         inst_addr_o   = inst_addr_i;       // 直接透传 PC 地址
         mem_rd_reg_o  = 1'b0;              // 默认: 不是 Load 指令
+        ctrl_flags_o  = 15'b0;
 
         // -------------------------------------------------------------
         // 按 Opcode 分支译码
@@ -78,6 +80,8 @@ module id (
             // I 型: 立即数算术逻辑运算 (ADDI, SLTI, ANDI, SLLI 等)
             // =========================================================
             `INST_TYPE_I: begin
+                ctrl_flags_o[0] = 1'b1;
+                ctrl_flags_o[14] = func7[5];
                 base_addr_o   = 32'b0;                         // I 型无访存，基地址清零
                 addr_offset_o = 32'b0;                         // I 型无访存，偏移量清零
                 case (func3)
@@ -105,6 +109,8 @@ module id (
             // R/M 型: 寄存器-寄存器运算 (ADD, SUB, AND, OR, SLL 等)
             // =========================================================
             `INST_TYPE_R_M: begin
+                ctrl_flags_o[1] = 1'b1;
+                ctrl_flags_o[14] = func7[5];
                 base_addr_o   = 32'b0;                         // R 型无访存
                 addr_offset_o = 32'b0;                         // R 型无访存
                 case (func3)
@@ -135,6 +141,15 @@ module id (
                 case (func3)
                     `INST_BNE, `INST_BEQ, `INST_BLT,
                     `INST_BGE, `INST_BLTU, `INST_BGEU: begin
+                        case (func3)
+                            `INST_BEQ:  ctrl_flags_o[8]  = 1'b1;
+                            `INST_BNE:  ctrl_flags_o[9]  = 1'b1;
+                            `INST_BLT:  ctrl_flags_o[10] = 1'b1;
+                            `INST_BGE:  ctrl_flags_o[11] = 1'b1;
+                            `INST_BLTU: ctrl_flags_o[12] = 1'b1;
+                            `INST_BGEU: ctrl_flags_o[13] = 1'b1;
+                            default: ;
+                        endcase
                         op1_o         = rs1_data_i;            // 操作数 1: rs1 的值
                         op2_o         = rs2_data_i;            // 操作数 2: rs2 的值
                         reg_wen       = 1'b0;                  // 禁止写回
@@ -154,6 +169,7 @@ module id (
             // L 型: 内存加载 (LB, LH, LW, LBU, LHU)
             // =========================================================
             `INST_TYPE_L: begin
+                ctrl_flags_o[2] = 1'b1;
                 case (func3)
                     `INST_LB, `INST_LH, `INST_LW,
                     `INST_LBU, `INST_LHU: begin
@@ -177,6 +193,7 @@ module id (
             // S 型: 内存存储 (SB, SH, SW)
             // =========================================================
             `INST_TYPE_S: begin
+                ctrl_flags_o[3] = 1'b1;
                 case (func3)
                     `INST_SB, `INST_SH, `INST_SW: begin
                         op1_o         = rs1_data_i;            // 操作数 1: rs1 的值
@@ -201,6 +218,7 @@ module id (
             // rd = PC + 4; PC = PC + imm
             // =========================================================
             `INST_JAL: begin
+                ctrl_flags_o[4] = 1'b1;
                 op1_o         = inst_addr_i;                   // 操作数 1: 当前 PC
                 op2_o         = 32'd4;                         // 操作数 2: 4 (计算 PC+4 作返回地址)
                 reg_wen       = 1'b1;                          // 使能写回
@@ -215,6 +233,7 @@ module id (
             // rd = PC + 4; PC = (rs1 + imm) & ~1
             // =========================================================
             `INST_JALR: begin
+                ctrl_flags_o[5] = 1'b1;
                 op1_o         = inst_addr_i;                   // 操作数 1: 当前 PC
                 op2_o         = 32'd4;                         // 操作数 2: 4 (计算 PC+4)
                 reg_wen       = 1'b1;                          // 使能写回
@@ -228,6 +247,7 @@ module id (
             // rd = PC + (imm << 12)
             // =========================================================
             `INST_AUIPC: begin
+                ctrl_flags_o[6] = 1'b1;
                 op1_o         = inst_addr_i;                   // 操作数 1: 当前 PC
                 op2_o         = {inst_i[31:12], 12'b0};        // 操作数 2: 高 20 位立即数左移 12 位
                 reg_wen       = 1'b1;                          // 使能写回
@@ -241,6 +261,7 @@ module id (
             // rd = imm << 12
             // =========================================================
             `INST_LUI: begin
+                ctrl_flags_o[7] = 1'b1;
                 op1_o         = {inst_i[31:12], 12'b0};        // 操作数 1: 高 20 位立即数左移 12 位
                 op2_o         = 32'b0;                         // 操作数 2: 0 (结果 = imm)
                 reg_wen       = 1'b1;                          // 使能写回

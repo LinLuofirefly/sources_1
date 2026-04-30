@@ -30,8 +30,8 @@ module branch_predictor(
     reg [1:0] bht [0:BHT_SIZE-1];
 
     wire [6:0] opcode = if_inst_i[6:0];
-    wire [BHT_ADDR_WIDTH-1:0] pred_idx   = if_pc_i[8:2];
-    wire [BHT_ADDR_WIDTH-1:0] update_idx = update_pc_i[8:2];
+    wire [BHT_ADDR_WIDTH-1:0] pred_idx   = if_pc_i[BHT_ADDR_WIDTH+1:2];
+    wire [BHT_ADDR_WIDTH-1:0] update_idx = update_pc_i[BHT_ADDR_WIDTH+1:2];
 
     wire [31:0] b_imm =
         {{20{if_inst_i[31]}}, if_inst_i[7], if_inst_i[30:25], if_inst_i[11:8], 1'b0};

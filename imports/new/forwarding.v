@@ -22,6 +22,11 @@ module forwarding (
     input  wire        mem2a_rd_wen_i,
     input  wire        mem2a_is_load_i,
 
+    input  wire [4:0]  mem2b_rd_addr_i,
+    input  wire [31:0] mem2b_rd_data_i,
+    input  wire        mem2b_rd_wen_i,
+    input  wire        mem2b_is_load_i,
+
     input  wire [4:0]  mem2_rd_addr_i,
     input  wire [31:0] mem2_rd_data_i,
     input  wire        mem2_rd_wen_i,
@@ -55,6 +60,8 @@ module forwarding (
                          (opcode == `INST_TYPE_S) ||
                          (opcode == `INST_JALR);
 
+    // MEM2A/MEM2B are the extra pre-MEM2 align stages. ALU results can still
+    // be forwarded from there, but load data must wait until MEM2.
     always @(*) begin
         if (use_rs1 && (rs1 != 5'b0) && ex_mem_rd_wen_i && (ex_mem_rd_addr_i == rs1) && !ex_mem_is_load_i) begin
             fwd_op1_o = ex_mem_rd_data_i;
@@ -62,6 +69,8 @@ module forwarding (
             fwd_op1_o = mem1_mem2_rd_data_i;
         end else if (use_rs1 && (rs1 != 5'b0) && mem2a_rd_wen_i && (mem2a_rd_addr_i == rs1) && !mem2a_is_load_i) begin
             fwd_op1_o = mem2a_rd_data_i;
+        end else if (use_rs1 && (rs1 != 5'b0) && mem2b_rd_wen_i && (mem2b_rd_addr_i == rs1) && !mem2b_is_load_i) begin
+            fwd_op1_o = mem2b_rd_data_i;
         end else if (use_rs1 && (rs1 != 5'b0) && mem2_rd_wen_i && (mem2_rd_addr_i == rs1)) begin
             fwd_op1_o = mem2_rd_data_i;
         end else if (use_rs1 && (rs1 != 5'b0) && mem_wb_rd_wen_i && (mem_wb_rd_addr_i == rs1)) begin
@@ -76,6 +85,8 @@ module forwarding (
             fwd_op2_o = mem1_mem2_rd_data_i;
         end else if (use_rs2 && (rs2 != 5'b0) && mem2a_rd_wen_i && (mem2a_rd_addr_i == rs2) && !mem2a_is_load_i) begin
             fwd_op2_o = mem2a_rd_data_i;
+        end else if (use_rs2 && (rs2 != 5'b0) && mem2b_rd_wen_i && (mem2b_rd_addr_i == rs2) && !mem2b_is_load_i) begin
+            fwd_op2_o = mem2b_rd_data_i;
         end else if (use_rs2 && (rs2 != 5'b0) && mem2_rd_wen_i && (mem2_rd_addr_i == rs2)) begin
             fwd_op2_o = mem2_rd_data_i;
         end else if (use_rs2 && (rs2 != 5'b0) && mem_wb_rd_wen_i && (mem_wb_rd_addr_i == rs2)) begin
@@ -90,6 +101,8 @@ module forwarding (
             fwd_base_addr_o = mem1_mem2_rd_data_i;
         end else if (use_base_addr && (rs1 != 5'b0) && mem2a_rd_wen_i && (mem2a_rd_addr_i == rs1) && !mem2a_is_load_i) begin
             fwd_base_addr_o = mem2a_rd_data_i;
+        end else if (use_base_addr && (rs1 != 5'b0) && mem2b_rd_wen_i && (mem2b_rd_addr_i == rs1) && !mem2b_is_load_i) begin
+            fwd_base_addr_o = mem2b_rd_data_i;
         end else if (use_base_addr && (rs1 != 5'b0) && mem2_rd_wen_i && (mem2_rd_addr_i == rs1)) begin
             fwd_base_addr_o = mem2_rd_data_i;
         end else if (use_base_addr && (rs1 != 5'b0) && mem_wb_rd_wen_i && (mem_wb_rd_addr_i == rs1)) begin

@@ -6,6 +6,7 @@ module ex (
     input  wire [31:0] op1_i,
     input  wire [31:0] op2_i,
     input  wire        pred_taken_i,
+    input  wire [14:0] ctrl_flags_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        rd_wen_i,
     input  wire        kill_i,
@@ -32,10 +33,24 @@ module ex (
     output reg         bp_actual_taken_o
 );
 
-    wire [6:0] opcode = inst_i[6:0];
     wire [2:0] func3  = inst_i[14:12];
-    wire [6:0] func7  = inst_i[31:25];
     wire [4:0] shamt  = op2_i[4:0];
+    wire is_itype = ctrl_flags_i[0];
+    wire is_rtype = ctrl_flags_i[1];
+    wire is_load  = ctrl_flags_i[2];
+    wire is_store = ctrl_flags_i[3];
+    wire is_jal   = ctrl_flags_i[4];
+    wire is_jalr  = ctrl_flags_i[5];
+    wire is_auipc = ctrl_flags_i[6];
+    wire is_lui   = ctrl_flags_i[7];
+    wire is_beq   = ctrl_flags_i[8];
+    wire is_bne   = ctrl_flags_i[9];
+    wire is_blt   = ctrl_flags_i[10];
+    wire is_bge   = ctrl_flags_i[11];
+    wire is_bltu  = ctrl_flags_i[12];
+    wire is_bgeu  = ctrl_flags_i[13];
+    wire func7_bit5 = ctrl_flags_i[14];
+    wire is_branch = is_beq | is_bne | is_blt | is_bge | is_bltu | is_bgeu;
 
     wire op1_i_equal_op2_i         = (op1_i == op2_i);
     wire op1_i_less_op2_i_signed   = ($signed(op1_i) < $signed(op2_i));
@@ -51,6 +66,7 @@ module ex (
     wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
     wire [31:0] base_addr_add_addr_offset = base_addr_i + addr_offset_i;
+    wire [31:0] pc_relative_jump_addr     = inst_addr_i + addr_offset_i;
     wire [31:0] fallthrough_addr          = inst_addr_i + 32'd4;
 
     reg branch_taken_r;
@@ -75,8 +91,7 @@ module ex (
         branch_taken_r     = 1'b0;
 
         if (kill_i == 1'b0) begin
-            case (opcode)
-                `INST_TYPE_I: begin
+            if (is_itype) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, op1_i_less_op2_i_signed};
@@ -86,7 +101,7 @@ module ex (
                         `INST_XORI:  rd_data_o = op1_i_xor_op2_i;
                         `INST_SLLI:  rd_data_o = op1_i_shift_left_op2_i;
                         `INST_SRI: begin
-                            if (func7[5] == 1'b0) begin
+                            if (func7_bit5 == 1'b0) begin
                                 rd_data_o = op1_i_shift_right_op2_i;
                             end else begin
                                 rd_data_o = (op1_i_shift_right_op2_i & sra_mask)
@@ -102,12 +117,10 @@ module ex (
                         rd_addr_o = rd_addr_i;
                         rd_wen_o  = rd_wen_i;
                     end
-                end
-
-                `INST_TYPE_R_M: begin
+            end else if (is_rtype) begin
                     case (func3)
                         `INST_ADD_SUB: begin
-                            if (func7 == 7'b0000000) begin
+                            if (func7_bit5 == 1'b0) begin
                                 rd_data_o = op1_i_add_op2_i;
                             end else begin
                                 rd_data_o = op1_i - op2_i;
@@ -120,7 +133,7 @@ module ex (
                         `INST_XOR:  rd_data_o = op1_i_xor_op2_i;
                         `INST_AND:  rd_data_o = op1_i_and_op2_i;
                         `INST_SR: begin
-                            if (func7[5] == 1'b0) begin
+                            if (func7_bit5 == 1'b0) begin
                                 rd_data_o = op1_i_shift_right_op2_i;
                             end else begin
                                 rd_data_o = (op1_i_shift_right_op2_i & sra_mask)
@@ -132,37 +145,37 @@ module ex (
 
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
-                end
-
-                `INST_TYPE_B: begin
-                    case (func3)
-                        `INST_BNE:  branch_taken_r = ~op1_i_equal_op2_i;
-                        `INST_BEQ:  branch_taken_r = op1_i_equal_op2_i;
-                        `INST_BLT:  branch_taken_r = op1_i_less_op2_i_signed;
-                        `INST_BGE:  branch_taken_r = ~op1_i_less_op2_i_signed;
-                        `INST_BLTU: branch_taken_r = op1_i_less_op2_i_unsigned;
-                        `INST_BGEU: branch_taken_r = ~op1_i_less_op2_i_unsigned;
-                        default:    branch_taken_r = 1'b0;
-                    endcase
+            end else if (is_branch) begin
+                    if (is_bne) begin
+                        branch_taken_r = ~op1_i_equal_op2_i;
+                    end else if (is_beq) begin
+                        branch_taken_r = op1_i_equal_op2_i;
+                    end else if (is_blt) begin
+                        branch_taken_r = op1_i_less_op2_i_signed;
+                    end else if (is_bge) begin
+                        branch_taken_r = ~op1_i_less_op2_i_signed;
+                    end else if (is_bltu) begin
+                        branch_taken_r = op1_i_less_op2_i_unsigned;
+                    end else if (is_bgeu) begin
+                        branch_taken_r = ~op1_i_less_op2_i_unsigned;
+                    end else begin
+                        branch_taken_r = 1'b0;
+                    end
 
                     bp_update_en_o    = 1'b1;
                     bp_update_pc_o    = inst_addr_i;
                     bp_actual_taken_o = branch_taken_r;
-
                     if (branch_taken_r != pred_taken_i) begin
                         jump_en_o   = 1'b1;
-                        jump_addr_o = branch_taken_r ? base_addr_add_addr_offset : fallthrough_addr;
+                        jump_addr_o = branch_taken_r ? pc_relative_jump_addr : fallthrough_addr;
                     end
-                end
 
-                `INST_TYPE_L: begin
+            end else if (is_load) begin
                     is_load_o     = 1'b1;
                     rd_addr_o     = rd_addr_i;
                     rd_wen_o      = rd_wen_i;
                     mem_rd_addr_o = base_addr_add_addr_offset;
-                end
-
-                `INST_TYPE_S: begin
+            end else if (is_store) begin
                     mem_wd_addr_o = base_addr_add_addr_offset;
                     case (func3)
                         `INST_SB: begin
@@ -190,45 +203,33 @@ module ex (
                             mem_wd_data_o = 32'b0;
                         end
                     endcase
-                end
-
-                `INST_JAL: begin
+            end else if (is_jal) begin
                     rd_data_o = op1_i_add_op2_i;
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
-
                     if (pred_taken_i == 1'b0) begin
-                        jump_addr_o = base_addr_add_addr_offset;
                         jump_en_o   = 1'b1;
+                        jump_addr_o = pc_relative_jump_addr;
                     end
-                end
-
-                `INST_JALR: begin
+            end else if (is_jalr) begin
                     rd_data_o   = inst_addr_i + 32'd4;
                     rd_addr_o   = rd_addr_i;
                     rd_wen_o    = rd_wen_i;
-                    jump_addr_o = base_addr_add_addr_offset & ~32'd1;
                     jump_en_o   = 1'b1;
-                end
-
-                `INST_AUIPC: begin
+                    jump_addr_o = base_addr_add_addr_offset & ~32'd1;
+            end else if (is_auipc) begin
                     rd_data_o = op1_i_add_op2_i;
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
-                end
-
-                `INST_LUI: begin
+            end else if (is_lui) begin
                     rd_data_o = op1_i;
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
-                end
-
-                default: begin
+            end else begin
                     rd_addr_o = 5'b0;
                     rd_data_o = 32'b0;
                     rd_wen_o  = 1'b0;
-                end
-            endcase
+            end
         end
     end
 

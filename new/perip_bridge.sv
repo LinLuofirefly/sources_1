@@ -48,8 +48,8 @@ module perip_bridge(
     localparam CNT_START_CMD = 32'h8000_0000;
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     logic [31:0] LED;
-    logic [31:0] perip_rd_addr_r;   // 延迟一拍的读地址
-    logic [31:0] perip_rd_addr_rr;  // 延迟两拍的读地址   //读地址需要提前两拍发出以对齐 DRAM 的两拍读延迟
+    logic [31:0] perip_rd_addr_r;   // 寤惰繜涓€鎷嶇殑璇诲湴鍧€
+    logic [31:0] perip_rd_addr_rr;  // 寤惰繜涓ゆ媿鐨勮鍦板潃   //璇诲湴鍧€闇€瑕佹彁鍓嶄袱鎷嶅彂鍑轰互瀵归綈 DRAM 鐨勪袱鎷嶈寤惰繜
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -79,6 +79,7 @@ module perip_bridge(
         end
     end
     logic [31:0] seg_wdata, cnt_rdata, mmio_rdata, dram_rdata;
+    logic [31:0] perip_rdata_next;
     logic [39:0] seg_output;
     logic cnt_enable_cfg;
     logic perip_write_req;
@@ -173,21 +174,31 @@ module perip_bridge(
     );
 
     always_comb begin
-        perip_rdata = 32'h0;
+        perip_rdata_next = 32'h0;
         if (perip_rd_en_rr) begin
             case (perip_rd_addr_rr)
-                SW0_ADDR: perip_rdata = mmio_rdata;
-                SW1_ADDR: perip_rdata = mmio_rdata;
-                KEY_ADDR: perip_rdata = mmio_rdata;
-                SEG_ADDR: perip_rdata = mmio_rdata;
-                CNT_ADDR: perip_rdata = cnt_rdata;
+                SW0_ADDR: perip_rdata_next = mmio_rdata;
+                SW1_ADDR: perip_rdata_next = mmio_rdata;
+                KEY_ADDR: perip_rdata_next = mmio_rdata;
+                SEG_ADDR: perip_rdata_next = mmio_rdata;
+                CNT_ADDR: perip_rdata_next = cnt_rdata;
                 default: begin
                     if (perip_rd_addr_rr >= DRAM_ADDR_START && perip_rd_addr_rr < DRAM_ADDR_END)
-                        perip_rdata = dram_rdata;
+                        perip_rdata_next = dram_rdata;
                     else
-                        perip_rdata = 32'h0;
+                        perip_rdata_next = 32'h0;
                 end
             endcase
+        end
+    end
+
+    // Register the read response one more cycle so MMIO and DRAM share
+    // the same return timing at the CPU input.
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            perip_rdata <= 32'h0;
+        end else begin
+            perip_rdata <= perip_rdata_next;
         end
     end
     
