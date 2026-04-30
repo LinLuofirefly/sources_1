@@ -10,6 +10,9 @@ module id_ex (
     input  wire [31:0] op1_i,
     input  wire [31:0] op2_i,
     input  wire        pred_taken_i,
+    input  wire        raw_pred_taken_i,
+    input  wire [31:0] pred_target_i,
+    input  wire [8:0]  pred_ghr_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        reg_wen_i,
     input  wire [31:0] base_addr_i,
@@ -20,6 +23,9 @@ module id_ex (
     output wire [31:0] op1_o,
     output wire [31:0] op2_o,
     output wire        pred_taken_o,
+    output wire        raw_pred_taken_o,
+    output wire [31:0] pred_target_o,
+    output wire [8:0]  pred_ghr_o,
     output wire [4:0]  rd_addr_o,
     output wire        reg_wen_o,
     output wire [31:0] base_addr_o,
@@ -32,6 +38,9 @@ module id_ex (
     dff_set #(32) dff_op1         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op1_i,         op1_o);
     dff_set #(32) dff_op2         (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     op2_i,         op2_o);
     dff_set #(1)  dff_pred_taken  (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      pred_taken_i,  pred_taken_o);
+    dff_set #(1)  dff_raw_pred_taken(clk, rst, hold_flag_i, flush_flag_i, 1'b0,    raw_pred_taken_i, raw_pred_taken_o);
+    dff_set #(32) dff_pred_target (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     pred_target_i, pred_target_o);
+    dff_set #(9)  dff_pred_ghr    (clk, rst, hold_flag_i, flush_flag_i, 9'b0,      pred_ghr_i,    pred_ghr_o);
     dff_set #(5)  dff_rd_addr     (clk, rst, hold_flag_i, flush_flag_i, 5'b0,      rd_addr_i,     rd_addr_o);
     dff_set #(1)  dff_reg_wen     (clk, rst, hold_flag_i, flush_flag_i, 1'b0,      reg_wen_i,     reg_wen_o);
     dff_set #(32) dff_base_addr   (clk, rst, hold_flag_i, flush_flag_i, 32'b0,     base_addr_i,   base_addr_o);

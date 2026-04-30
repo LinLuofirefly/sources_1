@@ -38,6 +38,12 @@ module tb_student_top;
         $display("FINAL_LED=%08h", virtual_led);
         $display("FINAL_SEG=%010h", virtual_seg);
         $display("FINAL_SEG_WDATA=%08h", dut.bridge_inst.seg_wdata);
+        $display("BP_STATS total=%0d hit=%0d miss=%0d pred_taken=%0d actual_taken=%0d", bp_total_count, bp_hit_count, bp_miss_count, bp_pred_taken_count, bp_actual_taken_count);
+        if (bp_total_count != 0) begin
+            $display("BP_ACCURACY pct_x10000=%0d", (bp_hit_count * 10000) / bp_total_count);
+        end else begin
+            $display("BP_ACCURACY pct_x10000=0");
+        end
         $finish;
     end
 
@@ -49,6 +55,20 @@ module tb_student_top;
 
     integer jump_hold_dbg_count;
     initial jump_hold_dbg_count = 0;
+
+    integer bp_total_count;
+    integer bp_hit_count;
+    integer bp_miss_count;
+    integer bp_pred_taken_count;
+    integer bp_actual_taken_count;
+
+    initial begin
+        bp_total_count = 0;
+        bp_hit_count = 0;
+        bp_miss_count = 0;
+        bp_pred_taken_count = 0;
+        bp_actual_taken_count = 0;
+    end
 
     initial begin
         $dumpfile("sim_cpu.vcd");
@@ -110,6 +130,21 @@ module tb_student_top;
                     dut.perip_rdata
                 );
                 loop_dbg_count = loop_dbg_count + 1;
+            end
+
+            if (dut.Core_cpu.cpu_core.bp_update_en_o) begin
+                bp_total_count = bp_total_count + 1;
+                if (dut.Core_cpu.cpu_core.id_ex_pred_taken_o) begin
+                    bp_pred_taken_count = bp_pred_taken_count + 1;
+                end
+                if (dut.Core_cpu.cpu_core.bp_actual_taken_o) begin
+                    bp_actual_taken_count = bp_actual_taken_count + 1;
+                end
+                if (dut.Core_cpu.cpu_core.id_ex_pred_taken_o == dut.Core_cpu.cpu_core.bp_actual_taken_o) begin
+                    bp_hit_count = bp_hit_count + 1;
+                end else begin
+                    bp_miss_count = bp_miss_count + 1;
+                end
             end
 
             if (((dut.Core_cpu.cpu_core.bp_pred_taken_accepted_o || dut.Core_cpu.cpu_core.ctrl_jump_en_o ||

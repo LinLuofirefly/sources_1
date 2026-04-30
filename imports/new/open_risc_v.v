@@ -35,6 +35,7 @@ module open_risc_v (
     wire        bp_pred_taken_o;
     wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
+    wire [8:0]  bp_pred_ghr_o;
     wire        bp_pred_flush_o;
     reg         bp_pred_flush_d1_r;
     wire [31:0] pc_jump_addr_o;
@@ -57,6 +58,9 @@ module open_risc_v (
 
     wire [31:0] if_id_inst_o;              // IF/ID 输出的指�?
     wire        if_id_pred_taken_o;
+    wire        if_id_raw_pred_taken_o;
+    wire [31:0] if_id_pred_target_o;
+    wire [8:0]  if_id_pred_ghr_o;
     wire        if_id_replaying_o;
     wire [6:0]  hdu_id_opcode = if_id_inst_o[6:0];
     wire [4:0]  hdu_id_rs1    = if_id_inst_o[19:15];
@@ -121,6 +125,9 @@ module open_risc_v (
 
     wire [31:0] id_ex_op2_o;               // ID/EX 输出: 操作�?2
     wire        id_ex_pred_taken_o;
+    wire        id_ex_raw_pred_taken_o;
+    wire [31:0] id_ex_pred_target_o;
+    wire [8:0]  id_ex_pred_ghr_o;
 
     wire [4:0]  id_ex_rd_addr_o;           // ID/EX 输出: 目标寄存器地址
 
@@ -152,6 +159,10 @@ module open_risc_v (
     wire [31:0] ex_rd_mem_addr_o;          // EX 输出: Load 读地址
     wire        bp_update_en_o;
     wire [31:0] bp_update_pc_o;
+    wire [8:0]  bp_update_ghr_o;
+    wire        bp_ras_push_en_o;
+    wire        bp_ras_pop_en_o;
+    wire [31:0] bp_ras_push_addr_o;
     wire        bp_actual_taken_o;
 
     // =================================================================
@@ -294,9 +305,14 @@ module open_risc_v (
         .flush_flag_i   (ctrl_jump_en_o | ctrl_flush_ifid_o | bp_pred_flush_d1_r),
         .pred_taken_o   (bp_pred_taken_o),
         .pred_target_o  (bp_pred_target_o),
+        .pred_ghr_o     (bp_pred_ghr_o),
         .pred_flush_o   (bp_pred_flush_o),
         .update_en_i    (bp_update_en_o),
         .update_pc_i    (bp_update_pc_o),
+        .update_ghr_i   (bp_update_ghr_o),
+        .ras_push_en_i  (bp_ras_push_en_o),
+        .ras_pop_en_i   (bp_ras_pop_en_o),
+        .ras_push_addr_i(bp_ras_push_addr_o),
         .actual_taken_i (bp_actual_taken_o)
     );
 
@@ -319,8 +335,14 @@ module open_risc_v (
         .inst_i       (inst_i),
         .inst_addr_i  (bp_fetch_pc_r),
         .pred_taken_i (bp_pred_taken_accepted_o),
+        .raw_pred_taken_i(bp_pred_taken_o),
+        .pred_target_i(bp_pred_target_o),
+        .pred_ghr_i   (bp_pred_ghr_o),
         .inst_addr_o  (if_id_inst_addr_o),
         .pred_taken_o (if_id_pred_taken_o),
+        .raw_pred_taken_o(if_id_raw_pred_taken_o),
+        .pred_target_o(if_id_pred_target_o),
+        .pred_ghr_o   (if_id_pred_ghr_o),
         .inst_o       (if_id_inst_o),
         .replaying_o  (if_id_replaying_o),
         .hold_flag_i  (hdu_hold_flag_o | ctrl_redirect_hold_o),
@@ -380,6 +402,9 @@ module open_risc_v (
         .op1_i         (id_op1_o),
         .op2_i         (id_op2_o),
         .pred_taken_i  (if_id_pred_taken_o),
+        .raw_pred_taken_i(if_id_raw_pred_taken_o),
+        .pred_target_i (if_id_pred_target_o),
+        .pred_ghr_i    (if_id_pred_ghr_o),
         .rd_addr_i     (id_rd_addr_o),
         .reg_wen_i     (id_reg_wen),
         .base_addr_i   (id_base_addr_o),
@@ -390,6 +415,9 @@ module open_risc_v (
         .op1_o         (id_ex_op1_o),
         .op2_o         (id_ex_op2_o),
         .pred_taken_o  (id_ex_pred_taken_o),
+        .raw_pred_taken_o(id_ex_raw_pred_taken_o),
+        .pred_target_o (id_ex_pred_target_o),
+        .pred_ghr_o    (id_ex_pred_ghr_o),
         .rd_addr_o     (id_ex_rd_addr_o),
         .reg_wen_o     (id_ex_reg_wen),
         .base_addr_o   (id_ex_base_addr_o),
@@ -467,6 +495,8 @@ module open_risc_v (
         .op1_i         (fwd_op1_o),
         .op2_i         (fwd_op2_o),
         .pred_taken_i  (id_ex_pred_taken_o),
+        .pred_target_i (id_ex_pred_target_o),
+        .pred_ghr_i    (id_ex_pred_ghr_o),
         .ctrl_flags_i  (id_ex_ctrl_flags_o),
         .rd_addr_i     (id_ex_rd_addr_o),
         .rd_wen_i      (id_ex_reg_wen),
@@ -486,6 +516,10 @@ module open_risc_v (
         .inst_o        (ex_inst_o),
         .bp_update_en_o    (bp_update_en_o),
         .bp_update_pc_o    (bp_update_pc_o),
+        .bp_update_ghr_o   (bp_update_ghr_o),
+        .bp_ras_push_en_o  (bp_ras_push_en_o),
+        .bp_ras_pop_en_o   (bp_ras_pop_en_o),
+        .bp_ras_push_addr_o(bp_ras_push_addr_o),
         .bp_actual_taken_o (bp_actual_taken_o)
     );
 
