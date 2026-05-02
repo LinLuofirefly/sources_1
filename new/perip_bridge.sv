@@ -211,5 +211,5 @@ module perip_bridge(
 
     assign virtual_led_output = led_sync_d2;
     assign virtual_seg_output = seg_sync_d2;
-
+//进行vivado同步
 endmodule
