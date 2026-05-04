@@ -21,11 +21,6 @@ module mem1 (
     input  wire        mem2a_rd_wen_i,
     input  wire        mem2a_is_load_i,
 
-    input  wire [4:0]  mem2b_rd_addr_i,
-    input  wire [31:0] mem2b_rd_data_i,
-    input  wire        mem2b_rd_wen_i,
-    input  wire        mem2b_is_load_i,
-
     input  wire [4:0]  mem2_rd_addr_i,
     input  wire [31:0] mem2_rd_data_i,
     input  wire        mem2_rd_wen_i,
@@ -57,10 +52,6 @@ module mem1 (
                                     mem2a_rd_wen_i &&
                                     (mem2a_rd_addr_i == rs2) &&
                                     !mem2a_is_load_i;
-    wire store_fwd_from_mem2b     = is_store && (rs2 != 5'b0) &&
-                                    mem2b_rd_wen_i &&
-                                    (mem2b_rd_addr_i == rs2) &&
-                                    !mem2b_is_load_i;
     wire store_fwd_from_mem2      = is_store && (rs2 != 5'b0) &&
                                     mem2_rd_wen_i &&
                                     (mem2_rd_addr_i == rs2);
@@ -83,9 +74,6 @@ module mem1 (
                 store_data_forwarded_r = 1'b1;
             end else if (store_fwd_from_mem2a) begin
                 store_data_raw_r       = mem2a_rd_data_i;
-                store_data_forwarded_r = 1'b1;
-            end else if (store_fwd_from_mem2b) begin
-                store_data_raw_r       = mem2b_rd_data_i;
                 store_data_forwarded_r = 1'b1;
             end else if (store_fwd_from_mem2) begin
                 store_data_raw_r       = mem2_rd_data_i;

@@ -20,6 +20,12 @@ module regs (
     input  wire [4:0]  reg2_raddr_i,
     output reg  [31:0] reg2_rdata_o,
 
+    input  wire [4:0]  reg3_raddr_i,
+    output reg  [31:0] reg3_rdata_o,
+
+    input  wire [4:0]  reg4_raddr_i,
+    output reg  [31:0] reg4_rdata_o,
+
     // --- 写端口 ---
     input  wire [4:0]  reg_waddr_i,
     input  wire [31:0] reg_wdata_i,
@@ -58,6 +64,30 @@ module regs (
         end
         else begin
             reg2_rdata_o = regs[reg2_raddr_i];
+        end
+    end
+
+    always @(*) begin
+        if (reg3_raddr_i == 5'b0) begin
+            reg3_rdata_o = 32'b0;
+        end
+        else if (reg_wen && (reg3_raddr_i == reg_waddr_i)) begin
+            reg3_rdata_o = reg_wdata_i;
+        end
+        else begin
+            reg3_rdata_o = regs[reg3_raddr_i];
+        end
+    end
+
+    always @(*) begin
+        if (reg4_raddr_i == 5'b0) begin
+            reg4_rdata_o = 32'b0;
+        end
+        else if (reg_wen && (reg4_raddr_i == reg_waddr_i)) begin
+            reg4_rdata_o = reg_wdata_i;
+        end
+        else begin
+            reg4_rdata_o = regs[reg4_raddr_i];
         end
     end
 

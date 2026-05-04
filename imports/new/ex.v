@@ -7,7 +7,7 @@ module ex (
     input  wire [31:0] op2_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
-    input  wire [8:0]  pred_ghr_i,
+    input  wire [5:0]  pred_ghr_i,
     input  wire [14:0] ctrl_flags_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        rd_wen_i,
@@ -32,7 +32,7 @@ module ex (
 
     output reg         bp_update_en_o,
     output reg  [31:0] bp_update_pc_o,
-    output reg  [8:0]  bp_update_ghr_o,
+    output reg  [5:0]  bp_update_ghr_o,
     output reg         bp_ras_push_en_o,
     output reg         bp_ras_pop_en_o,
     output reg  [31:0] bp_ras_push_addr_o,
@@ -102,7 +102,7 @@ module ex (
         is_load_o          = 1'b0;
         bp_update_en_o     = 1'b0;
         bp_update_pc_o     = 32'b0;
-        bp_update_ghr_o    = 9'b0;
+        bp_update_ghr_o    = 6'b0;
         bp_ras_push_en_o   = 1'b0;
         bp_ras_pop_en_o    = 1'b0;
         bp_ras_push_addr_o = 32'b0;
@@ -183,7 +183,7 @@ module ex (
 
                 bp_update_en_o    = 1'b1;
                 bp_update_pc_o    = inst_addr_i;
-                bp_update_ghr_o   = pred_ghr_i;
+                bp_update_ghr_o   = pred_ghr_i[5:0];
                 bp_actual_taken_o = branch_taken_r;
                 if (branch_taken_r != pred_taken_i) begin
                     jump_en_o   = 1'b1;

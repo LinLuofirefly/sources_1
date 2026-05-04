@@ -29,26 +29,27 @@ module open_risc_v (
     wire        ctrl_kill_ex_o;
 
     wire        ctrl_flush_ifid_o;         // 冲刷信号: IF/ID (寄存化)
-
+    wire        ctrl_flush_idpipe_o;       // 冲刷信号: 新增 ID 级
     wire        ctrl_flush_idex_o;         // 冲刷信号: ID/EX (寄存化)
 
     wire        bp_pred_taken_o;
     wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
-    wire [8:0]  bp_pred_ghr_o;
+    wire [5:0]  bp_pred_ghr_o;
     wire        bp_pred_flush_o;
     reg         bp_pred_flush_d1_r;
     wire [31:0] pc_jump_addr_o;
     wire        pc_jump_en_o;
     reg  [31:0] bp_fetch_pc_r;
     reg         bp_fetch_valid_r;
-    reg         bp_fetch_valid_pending_r;
+    reg         ctrl_flush_ifid_d1_r;
 
     // --- HDU (冒险检测单�? 输出 ---
 
-    wire        hdu_hold_flag_o;           // 冻结信号: 冻结 PC �?IF/ID
-
-    wire        hdu_flush_flag_o;          // 冲刷信号: 清空 ID/EX (�?NOP)
+    wire        hdu_hold_req_o;            // HDU 组合冻结请求
+    wire        hdu_flush_req_o;           // HDU 组合冲刷请求
+    reg         hdu_hold_flag_o;           // 打一拍后的冻结信号
+    reg         hdu_flush_flag_o;          // 打一拍后的冲刷信号
 
     // =================================================================
     // 1. IF �?�?ID �? 级间线网
@@ -60,11 +61,12 @@ module open_risc_v (
     wire        if_id_pred_taken_o;
     wire        if_id_raw_pred_taken_o;
     wire [31:0] if_id_pred_target_o;
-    wire [8:0]  if_id_pred_ghr_o;
+    wire [5:0]  if_id_pred_ghr_o;
+    wire        if_id_valid_o;
     wire        if_id_replaying_o;
-    wire [6:0]  hdu_id_opcode = if_id_inst_o[6:0];
-    wire [4:0]  hdu_id_rs1    = if_id_inst_o[19:15];
-    wire [4:0]  hdu_id_rs2    = if_id_inst_o[24:20];
+    wire [6:0]  hdu_id_opcode = id_pipe_inst_o[6:0];
+    wire [4:0]  hdu_id_rs1    = id_pipe_inst_o[19:15];
+    wire [4:0]  hdu_id_rs2    = id_pipe_inst_o[24:20];
     wire        hdu_id_use_rs1_ex = (hdu_id_opcode == `INST_TYPE_R_M) ||
                                     (hdu_id_opcode == `INST_TYPE_I)   ||
                                     (hdu_id_opcode == `INST_TYPE_S)   ||
@@ -97,7 +99,51 @@ module open_risc_v (
     wire [31:0] id_addr_offset_o;          
     wire        data_read_en;
     wire [14:0] id_ctrl_flags_o;
-
+    wire [31:0] id_pipe_inst_o;
+    wire [31:0] id_pipe_inst_addr_o;
+    wire [31:0] id_pipe_op1_o;
+    wire [31:0] id_pipe_op2_o;
+    wire        id_pipe_pred_taken_o;
+    wire        id_pipe_raw_pred_taken_o;
+    wire [31:0] id_pipe_pred_target_o;
+    wire [5:0]  id_pipe_pred_ghr_o;
+    wire [4:0]  id_pipe_rd_addr_o;
+    wire        id_pipe_reg_wen_o;
+    wire [31:0] id_pipe_base_addr_o;
+    wire [31:0] id_pipe_addr_offset_o;
+    wire [14:0] id_pipe_ctrl_flags_o;
+    wire        issue_ready_o;
+    wire        issue_fire_o;
+    wire        issue_valid_o;
+    wire        issue_can_go_ex_o;
+    wire        front_hold_o;
+    wire        ifid_flush_now;
+    wire        idpipe_flush_now;
+    wire        if_id_consume_i;
+    wire        issue_load_input;
+    wire        id_issue_valid_i;
+    wire        ifetch_req_fire;
+    wire [31:0] issue_in_op1_o;
+    wire [31:0] issue_in_op2_o;
+    wire [31:0] issue_in_base_addr_o;
+    wire [31:0] issue_in_addr_offset_o;
+    wire [31:0] issue_emit_op1_o;
+    wire [31:0] issue_emit_op2_o;
+    wire [31:0] issue_emit_base_addr_o;
+    wire [31:0] issue_emit_addr_offset_o;
+    wire [6:0]  bp_if_opcode = inst_i[6:0];
+    wire [2:0]  bp_if_func3  = inst_i[14:12];
+    wire [4:0]  bp_if_rd     = inst_i[11:7];
+    wire [4:0]  bp_if_rs1    = inst_i[19:15];
+    wire        bp_if_rd_is_link = (bp_if_rd == 5'd1) || (bp_if_rd == 5'd5);
+    wire        bp_if_rs1_is_link = (bp_if_rs1 == 5'd1) || (bp_if_rs1 == 5'd5);
+    wire        bp_if_is_ret_like = (bp_if_opcode == `INST_JALR) &&
+                                    (bp_if_func3 == 3'b000) &&
+                                    bp_if_rs1_is_link &&
+                                    (!bp_if_rd_is_link || (bp_if_rd != bp_if_rs1));
+    wire        pending_x1_write;
+    wire        pending_x2_write;
+    wire        bp_ret_holdoff;
     // =================================================================
     // 3. 寄存器堆读出数据
     // =================================================================
@@ -127,7 +173,7 @@ module open_risc_v (
     wire        id_ex_pred_taken_o;
     wire        id_ex_raw_pred_taken_o;
     wire [31:0] id_ex_pred_target_o;
-    wire [8:0]  id_ex_pred_ghr_o;
+    wire [5:0]  id_ex_pred_ghr_o;
 
     wire [4:0]  id_ex_rd_addr_o;           // ID/EX 输出: 目标寄存器地址
 
@@ -159,7 +205,7 @@ module open_risc_v (
     wire [31:0] ex_rd_mem_addr_o;          // EX 输出: Load 读地址
     wire        bp_update_en_o;
     wire [31:0] bp_update_pc_o;
-    wire [8:0]  bp_update_ghr_o;
+    wire [5:0]  bp_update_ghr_o;
     wire        bp_ras_push_en_o;
     wire        bp_ras_pop_en_o;
     wire [31:0] bp_ras_push_addr_o;
@@ -233,12 +279,6 @@ module open_risc_v (
     wire [31:0] mem2_align_inst_o;
     wire [31:0] mem2_align_mem_rd_addr_o;
     wire        mem2_align_is_load_o;
-    wire [4:0]  mem2_pre_rd_addr_o;
-    wire [31:0] mem2_pre_rd_data_o;
-    wire        mem2_pre_rd_wen_o;
-    wire [31:0] mem2_pre_inst_o;
-    wire [31:0] mem2_pre_mem_rd_addr_o;
-    wire        mem2_pre_is_load_o;
 
     // =================================================================
     // 9. MEM2 级输出线�?    // =================================================================
@@ -266,22 +306,111 @@ module open_risc_v (
     // =================================================================
     assign mem_rd_reg_o   = ex_mem_is_load_o;       // Load 使能 �?外部 RAM
     assign mem_rd_addr_o  = ex_mem_mem_rd_addr_o;   // Load read address to external RAM
-    wire bp_if_valid = bp_fetch_valid_r & ~bp_pred_flush_d1_r;
-    assign bp_pred_taken_accepted_o = bp_pred_taken_o & bp_if_valid & ~hdu_hold_flag_o & ~ctrl_redirect_hold_o & ~ctrl_jump_en_o & ~ctrl_flush_ifid_o & ~if_id_replaying_o;
+    reg         recent_store_valid_r;
+    reg  [31:0] recent_store_addr_r;
+    reg  [31:0] recent_store_data_r;
+    reg  [3:0]  recent_store_strb_r;
+    wire        mem2_store_bypass_hit =
+        mem2_align_is_load_o &&
+        recent_store_valid_r &&
+        (recent_store_strb_r != 4'b0000) &&
+        (recent_store_addr_r[31:2] == mem2_align_mem_rd_addr_o[31:2]);
+    wire [31:0] mem2_ram_data_i = {
+        recent_store_strb_r[3] ? recent_store_data_r[31:24] : ram_data_i[31:24],
+        recent_store_strb_r[2] ? recent_store_data_r[23:16] : ram_data_i[23:16],
+        recent_store_strb_r[1] ? recent_store_data_r[15:8]  : ram_data_i[15:8],
+        recent_store_strb_r[0] ? recent_store_data_r[7:0]   : ram_data_i[7:0]
+    };
+    wire bp_if_valid = bp_fetch_valid_r & ~ifid_flush_now;
+    assign pending_x1_write =
+        (issue_valid_o && id_pipe_reg_wen_o && (id_pipe_rd_addr_o == 5'd1)) ||
+        (id_ex_reg_wen && (id_ex_rd_addr_o == 5'd1)) ||
+        (ex_mem_rd_wen_o && (ex_mem_pipe_rd_addr_o == 5'd1)) ||
+        (mem_out_rd_wen_o && (mem_out_rd_addr_o == 5'd1)) ||
+        (mem1_mem2_rd_wen_o && (mem1_mem2_rd_addr_o == 5'd1)) ||
+        (mem2_align_rd_wen_o && (mem2_align_rd_addr_o == 5'd1)) ||
+        (mem2_rd_wen_o && (mem2_rd_addr_o == 5'd1)) ||
+        (mem_wb_rd_wen_o && (mem_wb_rd_addr_o == 5'd1)) ||
+        (wb_rd_wen_o && (wb_rd_addr_o == 5'd1));
+    assign pending_x2_write =
+        (issue_valid_o && id_pipe_reg_wen_o && (id_pipe_rd_addr_o == 5'd2)) ||
+        (id_ex_reg_wen && (id_ex_rd_addr_o == 5'd2)) ||
+        (ex_mem_rd_wen_o && (ex_mem_pipe_rd_addr_o == 5'd2)) ||
+        (mem_out_rd_wen_o && (mem_out_rd_addr_o == 5'd2)) ||
+        (mem1_mem2_rd_wen_o && (mem1_mem2_rd_addr_o == 5'd2)) ||
+        (mem2_align_rd_wen_o && (mem2_align_rd_addr_o == 5'd2)) ||
+        (mem2_rd_wen_o && (mem2_rd_addr_o == 5'd2)) ||
+        (mem_wb_rd_wen_o && (mem_wb_rd_addr_o == 5'd2)) ||
+        (wb_rd_wen_o && (wb_rd_addr_o == 5'd2));
+    assign bp_ret_holdoff = 1'b0;
+    assign issue_can_go_ex_o = (~issue_valid_o) | (~hdu_hold_req_o);
+    assign ifid_flush_now = ctrl_flush_ifid_o |
+                            bp_pred_flush_d1_r;
+    assign idpipe_flush_now = ctrl_flush_idpipe_o;
+    assign issue_load_input = if_id_valid_o &
+                              issue_ready_o &
+                              ~idpipe_flush_now;
+    assign if_id_consume_i = issue_load_input;
+    assign id_issue_valid_i = if_id_valid_o & ~idpipe_flush_now;
+    assign front_hold_o = (~issue_ready_o) |
+                          ctrl_redirect_hold_o |
+                          ctrl_jump_en_o |
+                          ifid_flush_now;
+    assign ifetch_req_fire = pc_jump_en_o | (~front_hold_o);
+    assign bp_pred_taken_accepted_o = bp_pred_taken_o &
+                                  issue_load_input &
+                                  ~if_id_replaying_o &
+                                  ~ctrl_redirect_hold_o &
+                                  ~ctrl_jump_en_o &
+                                  ~ifid_flush_now &
+                                  ~bp_ret_holdoff;
     assign pc_jump_en_o   = ctrl_jump_en_o | bp_pred_taken_accepted_o;
     assign pc_jump_addr_o = ctrl_jump_en_o ? ctrl_jump_addr_o : bp_pred_target_o;
-
+    wire fetch_hold_keep =
+    front_hold_o &&
+    ~ctrl_redirect_hold_o &&
+    ~ctrl_jump_en_o &&
+    ~ifid_flush_now &&
+    ~pc_jump_en_o;
+    wire ifetch_new_req_fire =
+    ifetch_req_fire &&
+    (pc_jump_en_o ||
+     (bp_fetch_valid_r == 1'b0) ||
+     (pc_reg_pc_o != bp_fetch_pc_r));
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             bp_fetch_pc_r            <= 32'h8000_0000;
             bp_fetch_valid_r         <= 1'b0;
-            bp_fetch_valid_pending_r <= 1'b0;
             bp_pred_flush_d1_r       <= 1'b0;
+            ctrl_flush_ifid_d1_r     <= 1'b0;
+            recent_store_valid_r     <= 1'b0;
+            recent_store_addr_r      <= 32'b0;
+            recent_store_data_r      <= 32'b0;
+            recent_store_strb_r      <= 4'b0;
+            hdu_hold_flag_o          <= 1'b0;
+            hdu_flush_flag_o         <= 1'b0;
         end else begin
             bp_fetch_pc_r            <= pc_reg_pc_o;
-            bp_fetch_valid_r         <= bp_fetch_valid_pending_r;
-            bp_fetch_valid_pending_r <= 1'b1;
+        if (fetch_hold_keep == 1'b1) begin
+            bp_fetch_valid_r <= bp_fetch_valid_r;
+        end else begin
+            bp_fetch_valid_r <= ifetch_new_req_fire;
+        end
+
+        
             bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
+            ctrl_flush_ifid_d1_r     <= ctrl_flush_ifid_o;
+            recent_store_valid_r     <= (w_en != 4'b0000);
+            recent_store_addr_r      <= w_addr_i;
+            recent_store_data_r      <= w_data_i;
+            recent_store_strb_r      <= w_en;
+            if (ctrl_redirect_hold_o || ctrl_jump_en_o || ctrl_flush_ifid_o) begin
+                hdu_hold_flag_o      <= 1'b0;
+                hdu_flush_flag_o     <= 1'b0;
+            end else begin
+                hdu_hold_flag_o      <= issue_valid_o & ~issue_can_go_ex_o;
+                hdu_flush_flag_o     <= issue_valid_o & ~issue_can_go_ex_o;
+            end
         end
     end
 
@@ -301,8 +430,8 @@ module open_risc_v (
         .if_valid_i     (bp_if_valid),
         .if_inst_i      (inst_i),
         .if_pc_i        (bp_fetch_pc_r),
-        .hold_flag_i    (hdu_hold_flag_o | ctrl_redirect_hold_o),
-        .flush_flag_i   (ctrl_jump_en_o | ctrl_flush_ifid_o | bp_pred_flush_d1_r),
+        .hold_flag_i    (front_hold_o),
+        .flush_flag_i   (ctrl_jump_en_o | ifid_flush_now),
         .pred_taken_o   (bp_pred_taken_o),
         .pred_target_o  (bp_pred_target_o),
         .pred_ghr_o     (bp_pred_ghr_o),
@@ -321,7 +450,7 @@ module open_risc_v (
         .rst         (rst),
         .jump_en     (pc_jump_en_o),
         .jump_addr_i (pc_jump_addr_o),
-        .hold_flag_i (hdu_hold_flag_o | ctrl_redirect_hold_o),
+        .hold_flag_i (front_hold_o),
         .pc_o        (pc_reg_pc_o)
     );
 
@@ -332,6 +461,8 @@ module open_risc_v (
     if_id if_id_inst (
         .clk          (clk),
         .rst          (rst),
+        .push_valid_i (bp_if_valid),
+        .consume_i    (if_id_consume_i),
         .inst_i       (inst_i),
         .inst_addr_i  (bp_fetch_pc_r),
         .pred_taken_i (bp_pred_taken_accepted_o),
@@ -344,9 +475,10 @@ module open_risc_v (
         .pred_target_o(if_id_pred_target_o),
         .pred_ghr_o   (if_id_pred_ghr_o),
         .inst_o       (if_id_inst_o),
+        .valid_o      (if_id_valid_o),
         .replaying_o  (if_id_replaying_o),
-        .hold_flag_i  (hdu_hold_flag_o | ctrl_redirect_hold_o),
-        .flush_flag_i (ctrl_flush_ifid_o | bp_pred_flush_d1_r)
+        .hold_flag_i  (front_hold_o),
+        .flush_flag_i (ifid_flush_now)
     );
 
     // -----------------------------------------------------------------
@@ -354,12 +486,29 @@ module open_risc_v (
     //    读端�? 连接 ID 级的 rs1/rs2
     //    写端�? 连接 WB 级的写回信号
     // -----------------------------------------------------------------
+    wire [31:0] issue_regs_rs1_rdata_o;
+    wire [31:0] issue_regs_rs2_rdata_o;
+    wire [31:0] issue_live_inst_o;
+    wire [31:0] issue_live_inst_addr_o;
+    wire [31:0] issue_live_op1_o;
+    wire [31:0] issue_live_op2_o;
+    wire [4:0]  issue_live_rd_addr_o;
+    wire        issue_live_reg_wen_o;
+    wire [31:0] issue_live_base_addr_o;
+    wire [31:0] issue_live_addr_offset_o;
+    wire        issue_live_mem_rd_reg_o;
+    wire [14:0] issue_live_ctrl_flags_o;
+
     regs regs_inst (
         .clk          (clk),
         .reg1_raddr_i (id_rs1_addr_o),
         .reg2_raddr_i (id_rs2_addr_o),
         .reg1_rdata_o (regs_reg1_rdata_o),
         .reg2_rdata_o (regs_reg2_rdata_o),
+        .reg3_raddr_i (id_pipe_inst_o[19:15]),
+        .reg4_raddr_i (id_pipe_inst_o[24:20]),
+        .reg3_rdata_o (issue_regs_rs1_rdata_o),
+        .reg4_rdata_o (issue_regs_rs2_rdata_o),
         .reg_wen      (wb_rd_wen_o),
         .reg_waddr_i  (wb_rd_addr_o),
         .reg_wdata_i  (wb_rd_data_o)
@@ -387,6 +536,131 @@ module open_risc_v (
         .ctrl_flags_o  (id_ctrl_flags_o)
     );
 
+    // Refresh operands at issue time so a stalled instruction can see
+    // values that became available while it was waiting in front of EX.
+    forwarding issue_forwarding_inst (
+        .id_ex_inst_i        (id_inst_o),
+        .id_ex_op1_i         (id_op1_o),
+        .id_ex_op2_i         (id_op2_o),
+        .id_ex_base_addr_i   (id_base_addr_o),
+        .id_ex_addr_offset_i (id_addr_offset_o),
+        .ex_mem_rd_addr_i    (ex_mem_pipe_rd_addr_o),
+        .ex_mem_rd_data_i    (ex_mem_rd_data_o),
+        .ex_mem_rd_wen_i     (ex_mem_rd_wen_o),
+        .ex_mem_is_load_i    (ex_mem_is_load_o),
+        .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
+        .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
+        .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
+        .mem1_mem2_is_load_i (mem1_mem2_is_load_o),
+        .mem2a_rd_addr_i     (mem2_align_rd_addr_o),
+        .mem2a_rd_data_i     (mem2_align_rd_data_o),
+        .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
+        .mem2a_is_load_i     (mem2_align_is_load_o),
+        .mem2_rd_addr_i      (mem2_rd_addr_o),
+        .mem2_rd_data_i      (mem2_rd_data_o),
+        .mem2_rd_wen_i       (mem2_rd_wen_o),
+        .mem_wb_rd_addr_i    (mem_wb_rd_addr_o),
+        .mem_wb_rd_data_i    (mem_wb_rd_data_o),
+        .mem_wb_rd_wen_i     (mem_wb_rd_wen_o),
+        .wb_rd_addr_i        (wb_rd_addr_o),
+        .wb_rd_data_i        (wb_rd_data_o),
+        .wb_rd_wen_i         (wb_rd_wen_o),
+        .fwd_op1_o           (issue_in_op1_o),
+        .fwd_op2_o           (issue_in_op2_o),
+        .fwd_base_addr_o     (issue_in_base_addr_o),
+        .fwd_addr_offset_o   (issue_in_addr_offset_o)
+    );
+
+    issue_stage id_pipe_inst (
+        .clk           (clk),
+        .rst           (rst),
+        .flush_i       (idpipe_flush_now),
+        .issue_can_go_ex_i(issue_can_go_ex_o),
+        .issue_ready_o (issue_ready_o),
+        .issue_fire_o  (issue_fire_o),
+        .issue_valid_o (issue_valid_o),
+        .in_valid_i    (id_issue_valid_i),
+        .inst_i        (id_inst_o),
+        .inst_addr_i   (id_inst_addr_o),
+        .op1_i         (issue_in_op1_o),
+        .op2_i         (issue_in_op2_o),
+        .pred_taken_i  (if_id_pred_taken_o),
+        .raw_pred_taken_i(if_id_raw_pred_taken_o),
+        .pred_target_i (if_id_pred_target_o),
+        .pred_ghr_i    (if_id_pred_ghr_o),
+        .rd_addr_i     (id_rd_addr_o),
+        .reg_wen_i     (id_reg_wen),
+        .base_addr_i   (issue_in_base_addr_o),
+        .addr_offset_i (issue_in_addr_offset_o),
+        .ctrl_flags_i  (id_ctrl_flags_o),
+        .inst_o        (id_pipe_inst_o),
+        .inst_addr_o   (id_pipe_inst_addr_o),
+        .op1_o         (id_pipe_op1_o),
+        .op2_o         (id_pipe_op2_o),
+        .pred_taken_o  (id_pipe_pred_taken_o),
+        .raw_pred_taken_o(id_pipe_raw_pred_taken_o),
+        .pred_target_o (id_pipe_pred_target_o),
+        .pred_ghr_o    (id_pipe_pred_ghr_o),
+        .rd_addr_o     (id_pipe_rd_addr_o),
+        .reg_wen_o     (id_pipe_reg_wen_o),
+        .base_addr_o   (id_pipe_base_addr_o),
+        .addr_offset_o (id_pipe_addr_offset_o),
+        .ctrl_flags_o  (id_pipe_ctrl_flags_o)
+    );
+
+    id issue_refresh_id_inst (
+        .inst_i        (id_pipe_inst_o),
+        .inst_addr_i   (id_pipe_inst_addr_o),
+        .rs1_data_i    (issue_regs_rs1_rdata_o),
+        .rs2_data_i    (issue_regs_rs2_rdata_o),
+        .rs1_addr_o    (),
+        .rs2_addr_o    (),
+        .inst_o        (issue_live_inst_o),
+        .inst_addr_o   (issue_live_inst_addr_o),
+        .op1_o         (issue_live_op1_o),
+        .op2_o         (issue_live_op2_o),
+        .rd_addr_o     (issue_live_rd_addr_o),
+        .reg_wen       (issue_live_reg_wen_o),
+        .base_addr_o   (issue_live_base_addr_o),
+        .addr_offset_o (issue_live_addr_offset_o),
+        .mem_rd_reg_o  (issue_live_mem_rd_reg_o),
+        .ctrl_flags_o  (issue_live_ctrl_flags_o)
+    );
+
+    // Re-forward from the buffered issue slot at the moment it enters ID/EX.
+    forwarding issue_emit_forwarding_inst (
+        .id_ex_inst_i        (id_pipe_inst_o),
+        .id_ex_op1_i         (issue_live_op1_o),
+        .id_ex_op2_i         (issue_live_op2_o),
+        .id_ex_base_addr_i   (issue_live_base_addr_o),
+        .id_ex_addr_offset_i (issue_live_addr_offset_o),
+        .ex_mem_rd_addr_i    (ex_mem_pipe_rd_addr_o),
+        .ex_mem_rd_data_i    (ex_mem_rd_data_o),
+        .ex_mem_rd_wen_i     (ex_mem_rd_wen_o),
+        .ex_mem_is_load_i    (ex_mem_is_load_o),
+        .mem1_mem2_rd_addr_i (mem1_mem2_rd_addr_o),
+        .mem1_mem2_rd_data_i (mem1_mem2_rd_data_o),
+        .mem1_mem2_rd_wen_i  (mem1_mem2_rd_wen_o),
+        .mem1_mem2_is_load_i (mem1_mem2_is_load_o),
+        .mem2a_rd_addr_i     (mem2_align_rd_addr_o),
+        .mem2a_rd_data_i     (mem2_align_rd_data_o),
+        .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
+        .mem2a_is_load_i     (mem2_align_is_load_o),
+        .mem2_rd_addr_i      (mem2_rd_addr_o),
+        .mem2_rd_data_i      (mem2_rd_data_o),
+        .mem2_rd_wen_i       (mem2_rd_wen_o),
+        .mem_wb_rd_addr_i    (mem_wb_rd_addr_o),
+        .mem_wb_rd_data_i    (mem_wb_rd_data_o),
+        .mem_wb_rd_wen_i     (mem_wb_rd_wen_o),
+        .wb_rd_addr_i        (wb_rd_addr_o),
+        .wb_rd_data_i        (wb_rd_data_o),
+        .wb_rd_wen_i         (wb_rd_wen_o),
+        .fwd_op1_o           (issue_emit_op1_o),
+        .fwd_op2_o           (issue_emit_op2_o),
+        .fwd_base_addr_o     (issue_emit_base_addr_o),
+        .fwd_addr_offset_o   (issue_emit_addr_offset_o)
+    );
+
     // -----------------------------------------------------------------
     // 5. ID/EX 流水线寄存器
     //    hold: 不冻�?(恒为 0)
@@ -396,20 +670,20 @@ module open_risc_v (
         .clk           (clk),
         .rst           (rst),
         .hold_flag_i   (1'b0),
-        .flush_flag_i  (hdu_flush_flag_o | ctrl_flush_idex_o),
-        .inst_i        (id_inst_o),
-        .inst_addr_i   (id_inst_addr_o),
-        .op1_i         (id_op1_o),
-        .op2_i         (id_op2_o),
-        .pred_taken_i  (if_id_pred_taken_o),
-        .raw_pred_taken_i(if_id_raw_pred_taken_o),
-        .pred_target_i (if_id_pred_target_o),
-        .pred_ghr_i    (if_id_pred_ghr_o),
-        .rd_addr_i     (id_rd_addr_o),
-        .reg_wen_i     (id_reg_wen),
-        .base_addr_i   (id_base_addr_o),
-        .addr_offset_i (id_addr_offset_o),
-        .ctrl_flags_i  (id_ctrl_flags_o),
+        .flush_flag_i  ((~issue_fire_o) | ctrl_flush_idex_o),
+        .inst_i        (id_pipe_inst_o),
+        .inst_addr_i   (id_pipe_inst_addr_o),
+        .op1_i         (issue_emit_op1_o),
+        .op2_i         (issue_emit_op2_o),
+        .pred_taken_i  (id_pipe_pred_taken_o),
+        .raw_pred_taken_i(id_pipe_raw_pred_taken_o),
+        .pred_target_i (id_pipe_pred_target_o),
+        .pred_ghr_i    (id_pipe_pred_ghr_o),
+        .rd_addr_i     (id_pipe_rd_addr_o),
+        .reg_wen_i     (id_pipe_reg_wen_o),
+        .base_addr_i   (issue_emit_base_addr_o),
+        .addr_offset_i (issue_emit_addr_offset_o),
+        .ctrl_flags_i  (id_pipe_ctrl_flags_o),
         .inst_o        (id_ex_inst_o),
         .inst_addr_o   (id_ex_inst_addr_o),
         .op1_o         (id_ex_op1_o),
@@ -447,16 +721,15 @@ module open_risc_v (
         .mem2a_rd_data_i     (mem2_align_rd_data_o),
         .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
         .mem2a_is_load_i     (mem2_align_is_load_o),
-        .mem2b_rd_addr_i     (mem2_pre_rd_addr_o),
-        .mem2b_rd_data_i     (mem2_pre_rd_data_o),
-        .mem2b_rd_wen_i      (mem2_pre_rd_wen_o),
-        .mem2b_is_load_i     (mem2_pre_is_load_o),
         .mem2_rd_addr_i      (mem2_rd_addr_o),
         .mem2_rd_data_i      (mem2_rd_data_o),
         .mem2_rd_wen_i       (mem2_rd_wen_o),
         .mem_wb_rd_addr_i    (mem_wb_rd_addr_o),
         .mem_wb_rd_data_i    (mem_wb_rd_data_o),
         .mem_wb_rd_wen_i     (mem_wb_rd_wen_o),
+        .wb_rd_addr_i        (wb_rd_addr_o),
+        .wb_rd_data_i        (wb_rd_data_o),
+        .wb_rd_wen_i         (wb_rd_wen_o),
         .fwd_op1_o           (fwd_op1_o),
         .fwd_op2_o           (fwd_op2_o),
         .fwd_base_addr_o     (fwd_base_addr_o),
@@ -481,8 +754,8 @@ module open_risc_v (
         .mem1_mem2_is_load_i (mem1_mem2_is_load_o),
         .mem2a_rd_i   (mem2_align_rd_addr_o),
         .mem2a_is_load_i (mem2_align_is_load_o),
-        .hold_flag_o  (hdu_hold_flag_o),
-        .flush_flag_o (hdu_flush_flag_o)
+        .hold_flag_o  (hdu_hold_req_o),
+        .flush_flag_o (hdu_flush_req_o)
     );
 
     // -----------------------------------------------------------------
@@ -536,6 +809,7 @@ module open_risc_v (
         .jump_addr_o  (ctrl_jump_addr_o),
         .kill_ex_o    (ctrl_kill_ex_o),
         .flush_ifid_o (ctrl_flush_ifid_o),
+        .flush_idpipe_o (ctrl_flush_idpipe_o),
         .flush_idex_o (ctrl_flush_idex_o),
         .flush_flag_o ()
     );
@@ -589,10 +863,6 @@ module open_risc_v (
         .mem2a_rd_data_i     (mem2_align_rd_data_o),
         .mem2a_rd_wen_i      (mem2_align_rd_wen_o),
         .mem2a_is_load_i     (mem2_align_is_load_o),
-        .mem2b_rd_addr_i     (mem2_pre_rd_addr_o),
-        .mem2b_rd_data_i     (mem2_pre_rd_data_o),
-        .mem2b_rd_wen_i      (mem2_pre_rd_wen_o),
-        .mem2b_is_load_i     (mem2_pre_is_load_o),
         .mem2_rd_addr_i      (mem2_rd_addr_o),
         .mem2_rd_data_i      (mem2_rd_data_o),
         .mem2_rd_wen_i       (mem2_rd_wen_o),
@@ -655,37 +925,18 @@ module open_risc_v (
         .inst_o        (mem2_align_inst_o)
     );
 
-    mem1_mem2 mem2_pre_inst (
-        .clk           (clk),
-        .rst           (rst),
-        .hold_flag_i   (1'b0),
-        .flush_flag_i  (1'b0),
+    // -----------------------------------------------------------------
+    // 11. 第二访存�?(MEM2)
+    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
+    // -----------------------------------------------------------------
+    mem2 mem2_inst (
         .inst_i        (mem2_align_inst_o),
         .rd_addr_i     (mem2_align_rd_addr_o),
         .rd_data_i     (mem2_align_rd_data_o),
         .rd_wen_i      (mem2_align_rd_wen_o),
         .mem_rd_addr_i (mem2_align_mem_rd_addr_o),
         .is_load_i     (mem2_align_is_load_o),
-        .rd_addr_o     (mem2_pre_rd_addr_o),
-        .rd_data_o     (mem2_pre_rd_data_o),
-        .rd_wen_o      (mem2_pre_rd_wen_o),
-        .mem_rd_addr_o (mem2_pre_mem_rd_addr_o),
-        .is_load_o     (mem2_pre_is_load_o),
-        .inst_o        (mem2_pre_inst_o)
-    );
-
-    // -----------------------------------------------------------------
-    // 11. 第二访存�?(MEM2)
-    //     接收 RAM 读数据，完成 Load 数据对齐/扩展
-    // -----------------------------------------------------------------
-    mem2 mem2_inst (
-        .inst_i        (mem2_pre_inst_o),
-        .rd_addr_i     (mem2_pre_rd_addr_o),
-        .rd_data_i     (mem2_pre_rd_data_o),
-        .rd_wen_i      (mem2_pre_rd_wen_o),
-        .mem_rd_addr_i (mem2_pre_mem_rd_addr_o),
-        .is_load_i     (mem2_pre_is_load_o),
-        .mem_rd_data_i (ram_data_i),
+        .mem_rd_data_i (mem2_store_bypass_hit ? mem2_ram_data_i : ram_data_i),
         .rd_addr_o     (mem2_rd_addr_o),
         .rd_data_o     (mem2_rd_data_o),
         .rd_wen_o      (mem2_rd_wen_o),

@@ -79,7 +79,6 @@ module perip_bridge(
         end
     end
     logic [31:0] seg_wdata, cnt_rdata, mmio_rdata, dram_rdata;
-    logic [31:0] perip_rdata_next;
     logic [39:0] seg_output;
     logic cnt_enable_cfg;
     logic perip_write_req;
@@ -174,31 +173,21 @@ module perip_bridge(
     );
 
     always_comb begin
-        perip_rdata_next = 32'h0;
+        perip_rdata = 32'h0;
         if (perip_rd_en_rr) begin
             case (perip_rd_addr_rr)
-                SW0_ADDR: perip_rdata_next = mmio_rdata;
-                SW1_ADDR: perip_rdata_next = mmio_rdata;
-                KEY_ADDR: perip_rdata_next = mmio_rdata;
-                SEG_ADDR: perip_rdata_next = mmio_rdata;
-                CNT_ADDR: perip_rdata_next = cnt_rdata;
+                SW0_ADDR: perip_rdata = mmio_rdata;
+                SW1_ADDR: perip_rdata = mmio_rdata;
+                KEY_ADDR: perip_rdata = mmio_rdata;
+                SEG_ADDR: perip_rdata = mmio_rdata;
+                CNT_ADDR: perip_rdata = cnt_rdata;
                 default: begin
                     if (perip_rd_addr_rr >= DRAM_ADDR_START && perip_rd_addr_rr < DRAM_ADDR_END)
-                        perip_rdata_next = dram_rdata;
+                        perip_rdata = dram_rdata;
                     else
-                        perip_rdata_next = 32'h0;
+                        perip_rdata = 32'h0;
                 end
             endcase
-        end
-    end
-
-    // Register the read response one more cycle so MMIO and DRAM share
-    // the same return timing at the CPU input.
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            perip_rdata <= 32'h0;
-        end else begin
-            perip_rdata <= perip_rdata_next;
         end
     end
     

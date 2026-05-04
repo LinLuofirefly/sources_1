@@ -12,9 +12,15 @@ module tb_seg_led_stop;
     localparam [31:0] SEG_ADDR = 32'h8020_0020;
     localparam [31:0] LED_ADDR = 32'h8020_0040;
     localparam time SIM_TIME_LIMIT_NS = 30_000_000_000;
+    localparam integer STUCK_PC_LIMIT = 200000;
+    localparam longint HEARTBEAT_CYCLES = 1000000;
 
-    integer cycle_count;
+    longint cycle_count;
     integer seg_write_count;
+    integer led_write_count;
+    integer same_pc_count;
+    reg [31:0] prev_pc;
+    integer second_seg_cycle;
     student_top dut (
         .w_cpu_clk   (w_cpu_clk),
         .w_clk_50Mhz (w_clk_50Mhz),
@@ -34,9 +40,21 @@ module tb_seg_led_stop;
 
     task automatic finish_timeout;
         begin
-            $display("SEG_LED_STOP_TIMEOUT cyc=%0d time=%0t pc=%08h inst=%08h seg_writes=%0d led=%08h seg=%010h",
+            $display("SEG_LED_STOP_TIMEOUT cyc=%0d time=%0t pc=%08h inst=%08h seg_writes=%0d led=%08h seg=%010h second_seg_cycle=%0d same_pc=%0d",
                      cycle_count, $time, dut.pc, dut.instruction,
-                     seg_write_count, virtual_led, virtual_seg);
+                     seg_write_count, virtual_led, virtual_seg, second_seg_cycle, same_pc_count);
+            $finish;
+        end
+    endtask
+
+
+    task automatic finish_fail;
+        input [127:0] reason;
+        begin
+            $display("SEG_LED_STOP_FAIL reason=%0s cyc=%0d time=%0t pc=%08h inst=%08h seg_writes=%0d led_writes=%0d led=%08h seg=%010h second_seg_cycle=%0d same_pc=%0d",
+                     reason, cycle_count, $time, dut.pc, dut.instruction,
+                     seg_write_count, led_write_count, virtual_led, virtual_seg,
+                     second_seg_cycle, same_pc_count);
             $finish;
         end
     endtask
@@ -47,6 +65,10 @@ module tb_seg_led_stop;
         w_clk_rst   = 1'b1;
         cycle_count = 0;
         seg_write_count = 0;
+        led_write_count = 0;
+        same_pc_count = 0;
+        prev_pc = 32'b0;
+        second_seg_cycle = 0;
 
         #20;
         w_clk_rst = 1'b0;
@@ -56,21 +78,45 @@ module tb_seg_led_stop;
         if (!w_clk_rst) begin
             cycle_count = cycle_count + 1;
 
+            if (dut.pc == prev_pc) begin
+                same_pc_count = same_pc_count + 1;
+            end else begin
+                same_pc_count = 0;
+                prev_pc = dut.pc;
+            end
+
+            if (cycle_count > 100 && dut.pc < 32'h8000_0000) begin
+                finish_fail("RUNAWAY_LOW_PC");
+            end
+
+            if (same_pc_count >= STUCK_PC_LIMIT) begin
+                finish_fail("STUCK_SAME_PC");
+            end
+
+            if ((cycle_count % HEARTBEAT_CYCLES) == 0) begin
+                $display("SEG_LED_HEARTBEAT cyc=%0d time=%0t pc=%08h inst=%08h seg_writes=%0d led_writes=%0d led=%08h seg=%010h",
+                         cycle_count, $time, dut.pc, dut.instruction,
+                         seg_write_count, led_write_count, virtual_led, virtual_seg);
+            end
+
             if ((dut.perip_wstrb != 4'b0000) && (dut.perip_addr == SEG_ADDR)) begin
-                if (seg_write_count < 2) begin
-                    $display("SEG_WRITE_%0d cyc=%0d time=%0t pc=%08h inst=%08h data=%08h wstrb=%b",
-                             seg_write_count + 1, cycle_count, $time, dut.pc,
-                             dut.instruction, dut.perip_wdata, dut.perip_wstrb);
-                end
                 seg_write_count = seg_write_count + 1;
+                $display("SEG_WRITE #%0d cyc=%0d time=%0t pc=%08h inst=%08h data=%08h wstrb=%b vseg=%010h",
+                         seg_write_count, cycle_count, $time, dut.pc,
+                         dut.instruction, dut.perip_wdata, dut.perip_wstrb, virtual_seg);
+                if (seg_write_count == 2) begin
+                    second_seg_cycle = cycle_count;
+                end
             end
 
             if ((dut.perip_wstrb != 4'b0000) && (dut.perip_addr == LED_ADDR)) begin
-                $display("LED_WRITE_1 cyc=%0d time=%0t pc=%08h inst=%08h data=%08h wstrb=%b seg_writes=%0d",
-                         cycle_count, $time, dut.pc, dut.instruction,
-                         dut.perip_wdata, dut.perip_wstrb, seg_write_count);
-                $display("SEG_LED_STOP_DONE led=%08h seg=%010h seg_wdata=%08h",
-                         virtual_led, virtual_seg, dut.bridge_inst.seg_wdata);
+                led_write_count = led_write_count + 1;
+                $display("LED_WRITE #%0d cyc=%0d time=%0t pc=%08h inst=%08h data=%08h wstrb=%b seg_writes=%0d vseg=%010h",
+                         led_write_count, cycle_count, $time, dut.pc, dut.instruction,
+                         dut.perip_wdata, dut.perip_wstrb, seg_write_count, virtual_seg);
+                $display("SEG_LED_STOP_DONE led=%08h seg=%010h seg_wdata=%08h seg_writes=%0d led_writes=%0d",
+                         virtual_led, virtual_seg, dut.bridge_inst.seg_wdata,
+                         seg_write_count, led_write_count);
                 $finish;
             end
 

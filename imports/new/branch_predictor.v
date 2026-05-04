@@ -1,8 +1,8 @@
 `include "defines.v"
 
 module branch_predictor #(
-    parameter BHT_ADDR_WIDTH = 9,
-    parameter BHT_SIZE = 512,
+    parameter BHT_ADDR_WIDTH = 6,
+    parameter BHT_SIZE = 64,
     parameter RAS_DEPTH = 32,
     parameter RAS_PTR_WIDTH = 5
 )(

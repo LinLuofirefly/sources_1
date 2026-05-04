@@ -123,9 +123,9 @@ module tb_student_top;
                     dut.Core_cpu.cpu_core.regs_inst.regs[15],
                     dut.Core_cpu.cpu_core.regs_inst.regs[8],
                     dut.bridge_inst.perip_rd_en,
-                    dut.bridge_inst.perip_rd_en_rr,
+                    dut.bridge_inst.perip_rd_en_r,
                     dut.bridge_inst.perip_rd_addr,
-                    dut.bridge_inst.perip_rd_addr_rr,
+                    dut.bridge_inst.perip_rd_addr_r,
                     dut.bridge_inst.dram_rdata,
                     dut.perip_rdata
                 );
