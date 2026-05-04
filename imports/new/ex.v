@@ -6,6 +6,8 @@ module ex (
     input  wire [31:0] op1_i,
     input  wire [31:0] op2_i,
     input  wire        pred_taken_i,
+    input  wire [31:0] pred_target_i,
+    input  wire [8:0]  pred_ghr_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        rd_wen_i,
     input  wire        kill_i,
@@ -29,12 +31,18 @@ module ex (
 
     output reg         bp_update_en_o,
     output reg  [31:0] bp_update_pc_o,
+    output reg  [8:0]  bp_update_ghr_o,
+    output reg         bp_ras_push_en_o,
+    output reg         bp_ras_pop_en_o,
+    output reg  [31:0] bp_ras_push_addr_o,
     output reg         bp_actual_taken_o
 );
 
     wire [6:0] opcode = inst_i[6:0];
     wire [2:0] func3  = inst_i[14:12];
     wire [6:0] func7  = inst_i[31:25];
+    wire [4:0] rd     = inst_i[11:7];
+    wire [4:0] rs1    = inst_i[19:15];
     wire [4:0] shamt  = op2_i[4:0];
 
     wire op1_i_equal_op2_i         = (op1_i == op2_i);
@@ -52,6 +60,13 @@ module ex (
 
     wire [31:0] base_addr_add_addr_offset = base_addr_i + addr_offset_i;
     wire [31:0] fallthrough_addr          = inst_addr_i + 32'd4;
+    wire        rd_is_link = (rd == 5'b1) || (rd == 5'b101);
+    wire        rs1_is_link = (rs1 == 5'b1) || (rs1 == 5'b101);
+    wire        is_call_jal = (opcode == `INST_JAL) && rd_is_link;
+    wire        is_jalr_hint = (opcode == `INST_JALR) && (func3 == 3'b000);
+    wire        ras_should_push_jalr = is_jalr_hint && rd_is_link;
+    wire        ras_should_pop_jalr  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
+    wire        ras_predicted_jalr = ras_should_pop_jalr;
 
     reg branch_taken_r;
 
@@ -71,6 +86,10 @@ module ex (
         is_load_o          = 1'b0;
         bp_update_en_o     = 1'b0;
         bp_update_pc_o     = 32'b0;
+        bp_update_ghr_o    = 9'b0;
+        bp_ras_push_en_o   = 1'b0;
+        bp_ras_pop_en_o    = 1'b0;
+        bp_ras_push_addr_o = 32'b0;
         bp_actual_taken_o  = 1'b0;
         branch_taken_r     = 1'b0;
 
@@ -147,6 +166,7 @@ module ex (
 
                     bp_update_en_o    = 1'b1;
                     bp_update_pc_o    = inst_addr_i;
+                    bp_update_ghr_o   = pred_ghr_i;
                     bp_actual_taken_o = branch_taken_r;
 
                     if (branch_taken_r != pred_taken_i) begin
@@ -197,8 +217,13 @@ module ex (
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
 
+                    if (is_call_jal == 1'b1) begin
+                        bp_ras_push_en_o = 1'b1;
+                        bp_ras_push_addr_o = fallthrough_addr;
+                    end
+
                     if (pred_taken_i == 1'b0) begin
-                        jump_addr_o = base_addr_add_addr_offset;
+                        jump_addr_o = base_addr_add_addr_offset;                 
                         jump_en_o   = 1'b1;
                     end
                 end
@@ -208,7 +233,23 @@ module ex (
                     rd_addr_o   = rd_addr_i;
                     rd_wen_o    = rd_wen_i;
                     jump_addr_o = base_addr_add_addr_offset & ~32'd1;
-                    jump_en_o   = 1'b1;
+
+                    if (ras_should_push_jalr == 1'b1) begin
+                        bp_ras_push_en_o = 1'b1;
+                        bp_ras_push_addr_o = fallthrough_addr;
+                    end
+
+                    if (ras_should_pop_jalr == 1'b1) begin
+                        bp_ras_pop_en_o = 1'b1;
+                    end
+
+                    if (ras_predicted_jalr == 1'b1) begin
+                        if ((pred_taken_i == 1'b0) || (pred_target_i != (base_addr_add_addr_offset & ~32'd1))) begin
+                            jump_en_o = 1'b1;
+                        end
+                    end else begin
+                        jump_en_o   = 1'b1;
+                    end
                 end
 
                 `INST_AUIPC: begin
