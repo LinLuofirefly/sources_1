@@ -48,18 +48,6 @@ module perip_bridge(
     localparam CNT_START_CMD = 32'h8000_0000;
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     logic [31:0] LED;
-    logic [31:0] perip_rd_addr_r;   // 延迟一拍的读地址
-    logic [31:0] perip_rd_addr_rr;  // 延迟两拍的读地址   //读地址需要提前两拍发出以对齐 DRAM 的两拍读延迟
-
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            perip_rd_addr_r  <= 32'h0;
-            perip_rd_addr_rr <= 32'h0;
-        end else begin
-            perip_rd_addr_r  <= perip_rd_addr;
-            perip_rd_addr_rr <= perip_rd_addr_r;
-        end
-    end
 
     // input synchronizers
     logic [63:0] sw_sync_d1, sw_sync_d2;
@@ -78,7 +66,7 @@ module perip_bridge(
             key_sync_d2 <= key_sync_d1;
         end
     end
-    logic [31:0] seg_wdata, cnt_rdata, mmio_rdata, dram_rdata;
+    logic [31:0] seg_wdata, cnt_rdata, dram_rdata;
     logic [39:0] seg_output;
     logic cnt_enable_cfg;
     logic perip_write_req;
@@ -94,6 +82,43 @@ module perip_bridge(
         end else begin
             perip_rd_en_r  <= perip_rd_en;
             perip_rd_en_rr <= perip_rd_en_r;
+        end
+    end
+
+    // Address decode at request time, then pipeline the result
+    logic rd_is_dram_r,  rd_is_dram_rr;
+    logic rd_is_cnt_r,   rd_is_cnt_rr;
+    logic rd_is_sw0_r,   rd_is_sw0_rr;
+    logic rd_is_sw1_r,   rd_is_sw1_rr;
+    logic rd_is_key_r,   rd_is_key_rr;
+    logic rd_is_seg_r,   rd_is_seg_rr;
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            rd_is_dram_r  <= 1'b0;  rd_is_dram_rr <= 1'b0;
+            rd_is_cnt_r   <= 1'b0;  rd_is_cnt_rr  <= 1'b0;
+            rd_is_sw0_r   <= 1'b0;  rd_is_sw0_rr  <= 1'b0;
+            rd_is_sw1_r   <= 1'b0;  rd_is_sw1_rr  <= 1'b0;
+            rd_is_key_r   <= 1'b0;  rd_is_key_rr  <= 1'b0;
+            rd_is_seg_r   <= 1'b0;  rd_is_seg_rr  <= 1'b0;
+        end else begin
+            // Cycle 0: decode address at request time
+            rd_is_dram_r <= perip_rd_en &&
+                            perip_rd_addr >= DRAM_ADDR_START &&
+                            perip_rd_addr <  DRAM_ADDR_END;
+            rd_is_cnt_r  <= perip_rd_en && perip_rd_addr == CNT_ADDR;
+            rd_is_sw0_r  <= perip_rd_en && perip_rd_addr == SW0_ADDR;
+            rd_is_sw1_r  <= perip_rd_en && perip_rd_addr == SW1_ADDR;
+            rd_is_key_r  <= perip_rd_en && perip_rd_addr == KEY_ADDR;
+            rd_is_seg_r  <= perip_rd_en && perip_rd_addr == SEG_ADDR;
+
+            // Cycle 1: first pipeline stage
+            rd_is_dram_rr <= rd_is_dram_r;
+            rd_is_cnt_rr  <= rd_is_cnt_r;
+            rd_is_sw0_rr  <= rd_is_sw0_r;
+            rd_is_sw1_rr  <= rd_is_sw1_r;
+            rd_is_key_rr  <= rd_is_key_r;
+            rd_is_seg_rr  <= rd_is_seg_r;
         end
     end
 
@@ -119,19 +144,17 @@ module perip_bridge(
         end
     end
 
-    // read process: align with two-cycle DRAM read latency
+    // read process: use pre-decoded address select (no address comparison on data path)
     always_comb begin
-        if (perip_rd_en_rr) begin
-            case (perip_rd_addr_rr)
-                SW0_ADDR:  mmio_rdata = sw_sync_d2[31:0];
-                SW1_ADDR:  mmio_rdata = sw_sync_d2[63:32];
-                KEY_ADDR:  mmio_rdata = {24'd0, key_sync_d2};
-                SEG_ADDR:  mmio_rdata = seg_wdata;
-                default:   mmio_rdata = 32'hDEAD_BEEF;
-            endcase
-        end else begin
-            mmio_rdata = 32'h0;
-        end
+        unique case (1'b1)
+            rd_is_dram_rr: perip_rdata = dram_rdata;
+            rd_is_cnt_rr:  perip_rdata = cnt_rdata;
+            rd_is_sw0_rr:  perip_rdata = sw_sync_d2[31:0];
+            rd_is_sw1_rr:  perip_rdata = sw_sync_d2[63:32];
+            rd_is_key_rr:  perip_rdata = {24'd0, key_sync_d2};
+            rd_is_seg_rr:  perip_rdata = seg_wdata;
+            default:       perip_rdata = 32'h0;
+        endcase
     end
 
     // seg driver
@@ -171,25 +194,6 @@ module perip_bridge(
         .cnt_enable_cpu     (cnt_enable_cfg),
         .perip_rdata		(cnt_rdata)
     );
-
-    always_comb begin
-        perip_rdata = 32'h0;
-        if (perip_rd_en_rr) begin
-            case (perip_rd_addr_rr)
-                SW0_ADDR: perip_rdata = mmio_rdata;
-                SW1_ADDR: perip_rdata = mmio_rdata;
-                KEY_ADDR: perip_rdata = mmio_rdata;
-                SEG_ADDR: perip_rdata = mmio_rdata;
-                CNT_ADDR: perip_rdata = cnt_rdata;
-                default: begin
-                    if (perip_rd_addr_rr >= DRAM_ADDR_START && perip_rd_addr_rr < DRAM_ADDR_END)
-                        perip_rdata = dram_rdata;
-                    else
-                        perip_rdata = 32'h0;
-                end
-            endcase
-        end
-    end
     
     // output synchronizers
     logic [31:0] led_sync_d1, led_sync_d2;
