@@ -1,6 +1,8 @@
 `include "defines.v"
 
 module ex (
+    input  wire        clk,
+    input  wire        rst,
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
     input  wire [31:0] op1_i,
@@ -19,7 +21,7 @@ module ex (
     output reg  [31:0] jump_addr_o,
     output reg         jump_en_o,
 
-    output wire [31:0] inst_o,
+    output reg  [31:0] inst_o,
 
     input  wire [31:0] base_addr_i,
     input  wire [31:0] addr_offset_i,
@@ -35,7 +37,9 @@ module ex (
     output reg         bp_ras_push_en_o,
     output reg         bp_ras_pop_en_o,
     output reg  [31:0] bp_ras_push_addr_o,
-    output reg         bp_actual_taken_o
+    output reg         bp_actual_taken_o,
+    output wire        rv32m_busy_o,
+    output wire        rv32m_done_o
 );
 
     wire [6:0] opcode = inst_i[6:0];
@@ -57,6 +61,13 @@ module ex (
     wire [31:0] op1_i_shift_left_op2_i  = op1_i << op2_i[4:0];
     wire [31:0] op1_i_shift_right_op2_i = op1_i >> op2_i[4:0];
     wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
+    wire        is_rv32m                   = (opcode == `INST_TYPE_R_M) && (func7 == `INST_FUNC7_M);
+    wire        is_system                  = (opcode == `INST_SYSTEM);
+    wire        is_csr_op                  = is_system &&
+                                             ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  || (func3 == `INST_CSRRC) ||
+                                              (func3 == `INST_CSRRWI) || (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    wire        is_ecall                   = (inst_i == `INST_ECALL);
+    wire        is_mret                    = (inst_i == `INST_MRET);
 
     wire [31:0] base_addr_add_addr_offset = base_addr_i + addr_offset_i;
     wire [31:0] fallthrough_addr          = inst_addr_i + 32'd4;
@@ -68,17 +79,69 @@ module ex (
     wire        ras_should_pop_jalr  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
     wire        ras_predicted_jalr = ras_should_pop_jalr;
 
+    reg  [31:0] rv32m_inst_r;
+    reg  [4:0]  rv32m_rd_addr_r;
+    reg         rv32m_rd_wen_r;
     reg branch_taken_r;
+    // EX only launches the iterative unit once per decoded M instruction.
+    // While busy is high, HDU freezes the front of the pipeline and EX emits NOP.
+    wire        rv32m_iter_busy_w;
+    wire        rv32m_iter_done_w;
+    wire [31:0] rv32m_result_w;
+    wire rv32m_start = (kill_i == 1'b0) && is_rv32m && (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0);
 
-    assign inst_o = kill_i ? `INST_NOP : inst_i;
+    rv32m_iter rv32m_iter_inst (
+        .clk    (clk),
+        .rst    (rst),
+        .start_i(rv32m_start),
+        .func3_i(func3),
+        .op1_i  (op1_i),
+        .op2_i  (op2_i),
+        .busy_o (rv32m_iter_busy_w),
+        .done_o (rv32m_iter_done_w),
+        .result_o(rv32m_result_w)
+    );
+
+    assign rv32m_busy_o = rv32m_start || rv32m_iter_busy_w;
+    assign rv32m_done_o = rv32m_iter_done_w;
+
+    wire [31:0] csr_rdata_w;
+    wire [31:0] csr_trap_jump_addr_w;
+    wire        csr_trap_jump_en_w;
+
+    csr csr_inst (
+        .clk            (clk),
+        .rst            (rst),
+        .valid_i        (kill_i == 1'b0),
+        .inst_i         (inst_i),
+        .inst_addr_i    (inst_addr_i),
+        .csr_src_i      (op1_i),
+        .csr_rdata_o    (csr_rdata_w),
+        .trap_jump_addr_o(csr_trap_jump_addr_w),
+        .trap_jump_en_o (csr_trap_jump_en_w)
+    );
+
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            rv32m_inst_r    <= `INST_NOP;
+            rv32m_rd_addr_r <= 5'b0;
+            rv32m_rd_wen_r  <= 1'b0;
+        end else if (rv32m_start) begin
+            // Latch writeback metadata so the result can be replayed after the
+            // iterative unit finishes, even though ID/EX is stalled meanwhile.
+            rv32m_inst_r    <= inst_i;
+            rv32m_rd_addr_r <= rd_addr_i;
+            rv32m_rd_wen_r  <= rd_wen_i;
+        end
+    end
 
     always @(*) begin
 
         rd_addr_o          = 5'b0;
         rd_data_o          = 32'b0;
         rd_wen_o           = 1'b0;
-        jump_addr_o        = 32'b0;
-        jump_en_o          = 1'b0;
+        jump_addr_o        = csr_trap_jump_addr_w;
+        jump_en_o          = csr_trap_jump_en_w;
         mem_rd_addr_o      = 32'b0;
         mem_wd_reg_o       = 4'b0000;
         mem_wd_addr_o      = 32'b0;
@@ -92,8 +155,18 @@ module ex (
         bp_ras_push_addr_o = 32'b0;
         bp_actual_taken_o  = 1'b0;
         branch_taken_r     = 1'b0;
+        inst_o             = kill_i ? `INST_NOP : inst_i;
 
-        if (kill_i == 1'b0) begin
+        if (rv32m_busy_o == 1'b1) begin
+            // Hide the in-flight M instruction from later stages until the
+            // iterative unit produces a single-cycle done pulse.
+            inst_o = `INST_NOP;
+        end else if (rv32m_done_o == 1'b1) begin
+            rd_addr_o = rv32m_rd_addr_r;
+            rd_data_o = rv32m_result_w;
+            rd_wen_o  = rv32m_rd_wen_r;
+            inst_o    = rv32m_inst_r;
+        end else if (kill_i == 1'b0) begin
             case (opcode)
                 `INST_TYPE_I: begin
                     case (func3)
@@ -126,10 +199,12 @@ module ex (
                 `INST_TYPE_R_M: begin
                     case (func3)
                         `INST_ADD_SUB: begin
-                            if (func7 == 7'b0000000) begin
+                            if (func7 == `INST_FUNC7_R) begin
                                 rd_data_o = op1_i_add_op2_i;
-                            end else begin
+                            end else if (func7 == `INST_FUNC7_SUB) begin
                                 rd_data_o = op1_i - op2_i;
+                            end else begin
+                                rd_data_o = 32'b0;
                             end
                         end
                         `INST_SLL:  rd_data_o = op1_i_shift_left_op2_i;
@@ -223,7 +298,7 @@ module ex (
                     end
 
                     if (pred_taken_i == 1'b0) begin
-                        jump_addr_o = base_addr_add_addr_offset;                 
+                        jump_addr_o = base_addr_add_addr_offset;
                         jump_en_o   = 1'b1;
                     end
                 end
@@ -262,6 +337,14 @@ module ex (
                     rd_data_o = op1_i;
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
+                end
+
+                `INST_SYSTEM: begin
+                    if (is_csr_op == 1'b1) begin
+                        rd_data_o = csr_rdata_w;
+                        rd_addr_o = rd_addr_i;
+                        rd_wen_o  = rd_wen_i;
+                    end
                 end
 
                 default: begin

@@ -25,6 +25,9 @@
 
 // R and M type inst
 `define INST_TYPE_R_M 7'b0110011
+`define INST_FUNC7_R   7'b0000000
+`define INST_FUNC7_M   7'b0000001
+`define INST_FUNC7_SUB 7'b0100000
 // R type inst
 `define INST_ADD_SUB 3'b000
 `define INST_SLL    3'b001
@@ -51,13 +54,25 @@
 `define INST_LUI    7'b0110111
 `define INST_AUIPC  7'b0010111
 `define INST_NOP    32'h00000013
-`define INST_NOP_OP 7'b0000001
 `define INST_MRET   32'h30200073
 `define INST_RET    32'h00008067
 
 `define INST_FENCE  7'b0001111
+`define INST_SYSTEM 7'b1110011
 `define INST_ECALL  32'h73
 `define INST_EBREAK 32'h00100073
+`define INST_CSRRW  3'b001
+`define INST_CSRRS  3'b010
+`define INST_CSRRC  3'b011
+`define INST_CSRRWI 3'b101
+`define INST_CSRRSI 3'b110
+`define INST_CSRRCI 3'b111
+
+`define CSR_MSTATUS 12'h300
+`define CSR_MTVEC   12'h305
+`define CSR_MSCRATCH 12'h340
+`define CSR_MEPC    12'h341
+`define CSR_MCAUSE  12'h342
 
 // B type inst
 `define INST_TYPE_B 7'b1100011

@@ -37,15 +37,19 @@ module forwarding (
 );
 
     wire [6:0] opcode = id_ex_inst_i[6:0];
+    wire [2:0] func3  = id_ex_inst_i[14:12];
     wire [4:0] rs1    = id_ex_inst_i[19:15];
     wire [4:0] rs2    = id_ex_inst_i[24:20];
+    wire       system_use_rs1 = (opcode == `INST_SYSTEM) &&
+                                ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
 
     wire use_rs1 = (opcode == `INST_TYPE_I)   ||
                    (opcode == `INST_TYPE_R_M) ||
                    (opcode == `INST_TYPE_B)   ||
                    (opcode == `INST_TYPE_L)   ||
                    (opcode == `INST_TYPE_S)   ||
-                   (opcode == `INST_JALR);
+                   (opcode == `INST_JALR)     ||
+                   system_use_rs1;
 
     wire use_rs2 = (opcode == `INST_TYPE_R_M) ||
                    (opcode == `INST_TYPE_B)   ||

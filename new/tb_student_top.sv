@@ -65,7 +65,7 @@ module tb_student_top;
                 $display("CPU_WRITE T=%0t ADDR=%08h WSTRB=%b WDATA=%08h", $time, dut.perip_addr, dut.perip_wstrb, dut.perip_wdata);
             end
             if (dut.perip_rd_en) begin
-                $display("CPU_READ  T=%0t ADDR=%08h RDATA=%08h", $time, dut.perip_rd_addr, dut.perip_rdata);
+                $display("CPU_READ  T=%0t ADDR=%08h RDATA=%08h", $time, dut.perip_rd_addr, dut.load_rdata);
             end
             if (dut.bridge_inst.perip_write_req && dut.perip_addr == 32'h8020_0020) begin
                 $display("SEG_WRITE T=%0t DATA=%08h", $time, dut.perip_wdata);
@@ -76,7 +76,7 @@ module tb_student_top;
 
             if ((dut.pc >= 32'h8000_035c) && (dut.pc <= 32'h8000_0374) && (loop_dbg_count < 220)) begin
                 $display(
-                    "LOOP_DBG T=%0t PC=%08h IF_INST=%08h IF_ID=%08h ID_EX=%08h EX_MEM=%08h M1_M2=%08h M2A=%08h M2=%08h WB=%08h | HOLD=%b HDU_FLUSH=%b CTRL_IFID_FLUSH=%b CTRL_IDEX_FLUSH=%b | ID_OP1=%08h ID_OP2=%08h ID_EX_OP1=%08h ID_EX_OP2=%08h FWD_OP1=%08h FWD_OP2=%08h | WB_WEN=%b WB_ADDR=%0d WB_DATA=%08h | A5=%08h S0=%08h PERIP_RD_EN=%b RR=%b RD_A=%08h RD_A_RR=%08h DRAM=%08h PERIP_R=%08h",
+                    "LOOP_DBG T=%0t PC=%08h IF_INST=%08h IF_ID=%08h ID_EX=%08h EX_MEM=%08h M1_M2=%08h M2A=%08h M2=%08h WB=%08h | HOLD=%b HDU_FLUSH=%b CTRL_IFID_FLUSH=%b CTRL_IDEX_FLUSH=%b | ID_OP1=%08h ID_OP2=%08h ID_EX_OP1=%08h ID_EX_OP2=%08h FWD_OP1=%08h FWD_OP2=%08h | WB_WEN=%b WB_ADDR=%0d WB_DATA=%08h | A5=%08h S0=%08h DRAM_RD_EN=%b DRAM_D2=%b MMIO_RD_EN=%b MMIO_D2=%b RD_A=%08h DRAM=%08h LOAD_R=%08h",
                     $time,
                     dut.pc,
                     dut.instruction,
@@ -102,12 +102,13 @@ module tb_student_top;
                     dut.Core_cpu.cpu_core.wb_rd_data_o,
                     dut.Core_cpu.cpu_core.regs_inst.regs[15],
                     dut.Core_cpu.cpu_core.regs_inst.regs[8],
-                    dut.bridge_inst.perip_rd_en,
-                    dut.bridge_inst.perip_rd_en_rr,
+                    dut.dram_rd_en,
+                    dut.is_dram_load_d2,
+                    dut.mmio_rd_en,
+                    dut.is_mmio_load_d2,
                     dut.bridge_inst.perip_rd_addr,
-                    dut.bridge_inst.perip_rd_addr_rr,
-                    dut.bridge_inst.dram_rdata,
-                    dut.perip_rdata
+                    dut.dram_rdata,
+                    dut.load_rdata
                 );
                 loop_dbg_count = loop_dbg_count + 1;
             end

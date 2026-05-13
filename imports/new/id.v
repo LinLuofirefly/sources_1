@@ -252,6 +252,28 @@ module id (
             // =========================================================
             // 默认: 未知/不支持的指令
             // =========================================================
+            `INST_SYSTEM: begin
+                op2_o         = 32'b0;
+                base_addr_o   = 32'b0;
+                addr_offset_o = 32'b0;
+                mem_rd_reg_o  = 1'b0;
+
+                case (func3)
+                    `INST_CSRRW, `INST_CSRRS, `INST_CSRRC: begin
+                        op1_o   = rs1_data_i;
+                        reg_wen = 1'b1;
+                    end
+                    `INST_CSRRWI, `INST_CSRRSI, `INST_CSRRCI: begin
+                        op1_o   = {27'b0, rs1};
+                        reg_wen = 1'b1;
+                    end
+                    default: begin
+                        op1_o   = 32'b0;
+                        reg_wen = 1'b0;
+                    end
+                endcase
+            end
+
             default: begin
                 op1_o         = 32'b0;
                 op2_o         = 32'b0;
