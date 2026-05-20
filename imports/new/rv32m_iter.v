@@ -16,9 +16,10 @@ module rv32m_iter (
     // decode no longer fans out directly from ID/EX into the iterative state.
     localparam [2:0] RV32M_IDLE       = 3'b000;
     localparam [2:0] RV32M_PREP       = 3'b001;
-    localparam [2:0] RV32M_MUL        = 3'b010;
-    localparam [2:0] RV32M_DIV        = 3'b011;
-    localparam [2:0] RV32M_DIV_FINISH = 3'b100;
+    localparam [2:0] RV32M_MUL_ISSUE  = 3'b010;
+    localparam [2:0] RV32M_MUL_WAIT   = 3'b011;
+    localparam [2:0] RV32M_DIV        = 3'b100;
+    localparam [2:0] RV32M_DIV_FINISH = 3'b101;
 
     reg [2:0]  state_r;
     reg        done_r;
@@ -26,11 +27,9 @@ module rv32m_iter (
     reg [5:0]  iter_count_r;
     reg [31:0] op1_raw_r;
     reg [31:0] op2_raw_r;
-
-    reg [63:0] mul_accum_r;
-    reg [63:0] mul_multiplicand_r;
-    reg [31:0] mul_multiplier_r;
-    reg        mul_negate_r;
+    reg signed [32:0] mul_op1_ext_r;
+    reg signed [32:0] mul_op2_ext_r;
+    (* use_dsp = "yes" *) reg signed [65:0] mul_product_r;
 
     reg [32:0] div_remainder_r;
     reg [32:0] div_remainder_shift_r;
@@ -54,11 +53,15 @@ module rv32m_iter (
     wire is_signed_mul_b = (func3_r == `INST_MUL) ||
                            (func3_r == `INST_MULH);
 
-    // Multiply is performed on magnitudes, then the final 64-bit product is
-    // negated when the signedness combination requires it.
-    wire [31:0] mul_op1_abs = (is_signed_mul_a && op1_raw_r[31]) ? (~op1_raw_r + 32'd1) : op1_raw_r;
-    wire [31:0] mul_op2_abs = (is_signed_mul_b && op2_raw_r[31]) ? (~op2_raw_r + 32'd1) : op2_raw_r;
-    wire        mul_negate  = (is_signed_mul_a && op1_raw_r[31]) ^ (is_signed_mul_b && op2_raw_r[31]);
+    // Drive multiply through signed 33x33 operands so synthesis can map the
+    // operation into DSPs while still covering MUL/MULH/MULHSU/MULHU.
+    wire signed [32:0] mul_op1_ext_w =
+        is_signed_mul_a ? $signed({op1_raw_r[31], op1_raw_r}) : $signed({1'b0, op1_raw_r});
+    wire signed [32:0] mul_op2_ext_w =
+        is_signed_mul_b ? $signed({op2_raw_r[31], op2_raw_r}) : $signed({1'b0, op2_raw_r});
+    wire [63:0] mul_product_final = mul_product_r[63:0];
+    wire [31:0] mul_result_final =
+        (func3_r == `INST_MUL) ? mul_product_final[31:0] : mul_product_final[63:32];
 
     wire is_signed_div = (func3_r == `INST_DIV) || (func3_r == `INST_REM);
     wire is_rem_op     = (func3_r == `INST_REM) || (func3_r == `INST_REMU);
@@ -71,12 +74,6 @@ module rv32m_iter (
     wire        div_dividend_zero = (div_op1_abs == 32'b0);
     wire        div_dividend_less = (div_op1_abs < div_op2_abs);
     wire        div_divisor_one = (div_op2_abs == 32'd1);
-
-    // One shift-add step per cycle.
-    wire [63:0] mul_accum_next = mul_accum_r + (mul_multiplier_r[0] ? mul_multiplicand_r : 64'b0);
-    wire [63:0] mul_product_final = mul_negate_r ? (~mul_accum_next + 64'd1) : mul_accum_next;
-    wire [31:0] mul_result_final = (func3_r == `INST_MUL) ? mul_product_final[31:0] : mul_product_final[63:32];
-    wire        mul_last_cycle = (mul_multiplier_r[31:1] == 31'b0);
 
     // Two-phase restoring divider:
     // phase 0 shifts the next dividend bit into a 33-bit remainder register,
@@ -100,10 +97,9 @@ module rv32m_iter (
             iter_count_r            <= 6'b0;
             op1_raw_r               <= 32'b0;
             op2_raw_r               <= 32'b0;
-            mul_accum_r             <= 64'b0;
-            mul_multiplicand_r      <= 64'b0;
-            mul_multiplier_r        <= 32'b0;
-            mul_negate_r            <= 1'b0;
+            mul_op1_ext_r           <= 33'sd0;
+            mul_op2_ext_r           <= 33'sd0;
+            mul_product_r           <= 66'sd0;
             div_remainder_r         <= 33'b0;
             div_remainder_shift_r   <= 33'b0;
             div_dividend_r          <= 32'b0;
@@ -133,16 +129,14 @@ module rv32m_iter (
 
                 RV32M_PREP: begin
                     if (is_mul_op == 1'b1) begin
-                            if ((mul_op1_abs == 32'b0) || (mul_op2_abs == 32'b0)) begin
+                            if ((op1_raw_r == 32'b0) || (op2_raw_r == 32'b0)) begin
                                 state_r  <= RV32M_IDLE;
                                 result_o <= 32'b0;
                                 done_r   <= 1'b1;
                             end else begin
-                                state_r            <= RV32M_MUL;
-                                mul_accum_r        <= 64'b0;
-                                mul_multiplicand_r <= {32'b0, mul_op1_abs};
-                                mul_multiplier_r   <= mul_op2_abs;
-                                mul_negate_r       <= mul_negate;
+                                state_r      <= RV32M_MUL_ISSUE;
+                                mul_op1_ext_r <= mul_op1_ext_w;
+                                mul_op2_ext_r <= mul_op2_ext_w;
                             end
                     end else if (op2_raw_r == 32'b0) begin
                             // RISC-V mandates all-ones quotient and dividend remainder on divide-by-zero.
@@ -183,20 +177,15 @@ module rv32m_iter (
                     end
                 end
 
-                RV32M_MUL: begin
-                    mul_accum_r        <= mul_accum_next;
-                    mul_multiplicand_r <= mul_multiplicand_r << 1;
-                    mul_multiplier_r   <= mul_multiplier_r >> 1;
+                RV32M_MUL_ISSUE: begin
+                    mul_product_r <= mul_op1_ext_r * mul_op2_ext_r;
+                    state_r       <= RV32M_MUL_WAIT;
+                end
 
-                    // Stop once the current highest live multiplier bit has
-                    // been consumed instead of always burning a full 32 steps.
-                    if ((iter_count_r == 6'd31) || (mul_last_cycle == 1'b1)) begin
-                        state_r  <= RV32M_IDLE;
-                        done_r   <= 1'b1;
-                        result_o <= mul_result_final;
-                    end
-
-                    iter_count_r <= iter_count_r + 1'b1;
+                RV32M_MUL_WAIT: begin
+                    state_r  <= RV32M_IDLE;
+                    done_r   <= 1'b1;
+                    result_o <= mul_result_final;
                 end
 
                 RV32M_DIV: begin
