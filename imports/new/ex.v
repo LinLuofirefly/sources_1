@@ -5,8 +5,12 @@ module ex (
     input  wire        rst,
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
-    input  wire [31:0] op1_i,
-    input  wire [31:0] op2_i,
+    input  wire [31:0] raw_op1_i,
+    input  wire [31:0] fwd_op1_i,
+    input  wire [31:0] fwd_op2_i,
+    input  wire [31:0] raw_cmp_op2_i,
+    input  wire [31:0] fwd_cmp_op2_i,
+    input  wire [31:0] store_data_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
     input  wire [8:0]  pred_ghr_i,
@@ -23,13 +27,17 @@ module ex (
 
     output reg  [31:0] inst_o,
 
-    input  wire [31:0] base_addr_i,
-    input  wire [31:0] addr_offset_i,
+    input  wire [31:0] raw_base_i,
+    input  wire [31:0] fwd_base_i,
+    input  wire [31:0] branch_offset_i,
+    input  wire [31:0] mem_offset_i,
+    input  wire [31:0] jump_offset_i,
     output reg  [31:0] mem_rd_addr_o,
     output reg  [3:0]  mem_wd_reg_o,
     output reg  [31:0] mem_wd_addr_o,
     output reg  [31:0] mem_wd_data_o,
     output reg         is_load_o,
+    output reg         load_hits_dram_o,
 
     output reg         bp_update_en_o,
     output reg  [31:0] bp_update_pc_o,
@@ -47,19 +55,27 @@ module ex (
     wire [6:0] func7  = inst_i[31:25];
     wire [4:0] rd     = inst_i[11:7];
     wire [4:0] rs1    = inst_i[19:15];
-    wire [4:0] shamt  = op2_i[4:0];
+    wire [4:0] shamt  = fwd_op2_i[4:0];
 
-    wire op1_i_equal_op2_i         = (op1_i == op2_i);
-    wire op1_i_less_op2_i_signed   = ($signed(op1_i) < $signed(op2_i));
-    wire op1_i_less_op2_i_unsigned = (op1_i < op2_i);
+    wire [31:0] alu_op1     = fwd_op1_i;
+    wire [31:0] alu_op2     = fwd_op2_i;
+    wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
+    wire [31:0] br_op1      = raw_op1_i;
+    wire [31:0] br_cmp_op2  = raw_cmp_op2_i;
 
-    wire [31:0] op1_i_add_op2_i = op1_i + op2_i;
-    wire [31:0] op1_i_and_op2_i = op1_i & op2_i;
-    wire [31:0] op1_i_xor_op2_i = op1_i ^ op2_i;
-    wire [31:0] op1_i_or_op2_i  = op1_i | op2_i;
+    wire br_eq             = (br_op1 == br_cmp_op2);
+    wire br_less_signed    = ($signed(br_op1) < $signed(br_cmp_op2));
+    wire br_less_unsigned  = (br_op1 < br_cmp_op2);
+    wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
+    wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
 
-    wire [31:0] op1_i_shift_left_op2_i  = op1_i << op2_i[4:0];
-    wire [31:0] op1_i_shift_right_op2_i = op1_i >> op2_i[4:0];
+    wire [31:0] op1_i_add_op2_i = alu_op1 + alu_op2;
+    wire [31:0] op1_i_and_op2_i = alu_op1 & alu_op2;
+    wire [31:0] op1_i_xor_op2_i = alu_op1 ^ alu_op2;
+    wire [31:0] op1_i_or_op2_i  = alu_op1 | alu_op2;
+
+    wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
+    wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
     wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
     wire        is_rv32m                   = (opcode == `INST_TYPE_R_M) && (func7 == `INST_FUNC7_M);
     wire        is_system                  = (opcode == `INST_SYSTEM);
@@ -69,10 +85,14 @@ module ex (
     wire        is_ecall                   = (inst_i == `INST_ECALL);
     wire        is_mret                    = (inst_i == `INST_MRET);
 
-    wire [31:0] base_addr_add_addr_offset = base_addr_i + addr_offset_i;
-    wire [31:0] fallthrough_addr          = inst_addr_i + 32'd4;
-    wire        rd_is_link = (rd == 5'b1) || (rd == 5'b101);
-    wire        rs1_is_link = (rs1 == 5'b1) || (rs1 == 5'b101);
+    wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
+    wire [31:0] mem_addr           = fwd_base_i + mem_offset_i;
+    wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
+    wire [31:0] jalr_target_addr   = (raw_base_i + jump_offset_i) & ~32'd1;
+    wire [31:0] fallthrough_addr   = inst_addr_i + 32'd4;
+    localparam [13:0] DRAM_REGION_TAG = 14'h2004;
+    wire        rd_is_link = (rd == 5'b1);
+    wire        rs1_is_link = (rs1 == 5'b1);
     wire        is_call_jal = (opcode == `INST_JAL) && rd_is_link;
     wire        is_jalr_hint = (opcode == `INST_JALR) && (func3 == 3'b000);
     wire        ras_should_push_jalr = is_jalr_hint && rd_is_link;
@@ -95,8 +115,8 @@ module ex (
         .rst    (rst),
         .start_i(rv32m_start),
         .func3_i(func3),
-        .op1_i  (op1_i),
-        .op2_i  (op2_i),
+        .op1_i  (alu_op1),
+        .op2_i  (alu_op2),
         .busy_o (rv32m_iter_busy_w),
         .done_o (rv32m_iter_done_w),
         .result_o(rv32m_result_w)
@@ -115,7 +135,7 @@ module ex (
         .valid_i        (kill_i == 1'b0),
         .inst_i         (inst_i),
         .inst_addr_i    (inst_addr_i),
-        .csr_src_i      (op1_i),
+        .csr_src_i      (alu_op1),
         .csr_rdata_o    (csr_rdata_w),
         .trap_jump_addr_o(csr_trap_jump_addr_w),
         .trap_jump_en_o (csr_trap_jump_en_w)
@@ -147,6 +167,7 @@ module ex (
         mem_wd_addr_o      = 32'b0;
         mem_wd_data_o      = 32'b0;
         is_load_o          = 1'b0;
+        load_hits_dram_o   = 1'b0;
         bp_update_en_o     = 1'b0;
         bp_update_pc_o     = 32'b0;
         bp_update_ghr_o    = 9'b0;
@@ -171,8 +192,8 @@ module ex (
                 `INST_TYPE_I: begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
-                        `INST_SLTI:  rd_data_o = {31'b0, op1_i_less_op2_i_signed};
-                        `INST_SLTIU: rd_data_o = {31'b0, op1_i_less_op2_i_unsigned};
+                        `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
+                        `INST_SLTIU: rd_data_o = {31'b0, alu_less_unsigned};
                         `INST_ANDI:  rd_data_o = op1_i_and_op2_i;
                         `INST_ORI:   rd_data_o = op1_i_or_op2_i;
                         `INST_XORI:  rd_data_o = op1_i_xor_op2_i;
@@ -182,7 +203,7 @@ module ex (
                                 rd_data_o = op1_i_shift_right_op2_i;
                             end else begin
                                 rd_data_o = (op1_i_shift_right_op2_i & sra_mask)
-                                          | ({32{op1_i[31]}} & ~sra_mask);
+                                          | ({32{alu_op1[31]}} & ~sra_mask);
                             end
                         end
                         default: rd_data_o = 32'b0;
@@ -202,14 +223,14 @@ module ex (
                             if (func7 == `INST_FUNC7_R) begin
                                 rd_data_o = op1_i_add_op2_i;
                             end else if (func7 == `INST_FUNC7_SUB) begin
-                                rd_data_o = op1_i - op2_i;
+                                rd_data_o = alu_op1 - alu_op2;
                             end else begin
                                 rd_data_o = 32'b0;
                             end
                         end
                         `INST_SLL:  rd_data_o = op1_i_shift_left_op2_i;
-                        `INST_SLT:  rd_data_o = {31'b0, op1_i_less_op2_i_signed};
-                        `INST_SLTU: rd_data_o = {31'b0, op1_i_less_op2_i_unsigned};
+                        `INST_SLT:  rd_data_o = {31'b0, alu_less_signed};
+                        `INST_SLTU: rd_data_o = {31'b0, alu_less_unsigned};
                         `INST_OR:   rd_data_o = op1_i_or_op2_i;
                         `INST_XOR:  rd_data_o = op1_i_xor_op2_i;
                         `INST_AND:  rd_data_o = op1_i_and_op2_i;
@@ -218,7 +239,7 @@ module ex (
                                 rd_data_o = op1_i_shift_right_op2_i;
                             end else begin
                                 rd_data_o = (op1_i_shift_right_op2_i & sra_mask)
-                                          | ({32{op1_i[31]}} & ~sra_mask);
+                                          | ({32{alu_op1[31]}} & ~sra_mask);
                             end
                         end
                         default: rd_data_o = 32'b0;
@@ -230,12 +251,12 @@ module ex (
 
                 `INST_TYPE_B: begin
                     case (func3)
-                        `INST_BNE:  branch_taken_r = ~op1_i_equal_op2_i;
-                        `INST_BEQ:  branch_taken_r = op1_i_equal_op2_i;
-                        `INST_BLT:  branch_taken_r = op1_i_less_op2_i_signed;
-                        `INST_BGE:  branch_taken_r = ~op1_i_less_op2_i_signed;
-                        `INST_BLTU: branch_taken_r = op1_i_less_op2_i_unsigned;
-                        `INST_BGEU: branch_taken_r = ~op1_i_less_op2_i_unsigned;
+                        `INST_BNE:  branch_taken_r = ~br_eq;
+                        `INST_BEQ:  branch_taken_r = br_eq;
+                        `INST_BLT:  branch_taken_r = br_less_signed;
+                        `INST_BGE:  branch_taken_r = ~br_less_signed;
+                        `INST_BLTU: branch_taken_r = br_less_unsigned;
+                        `INST_BGEU: branch_taken_r = ~br_less_unsigned;
                         default:    branch_taken_r = 1'b0;
                     endcase
 
@@ -246,7 +267,7 @@ module ex (
 
                     if (branch_taken_r != pred_taken_i) begin
                         jump_en_o   = 1'b1;
-                        jump_addr_o = branch_taken_r ? base_addr_add_addr_offset : fallthrough_addr;
+                        jump_addr_o = branch_taken_r ? branch_target_addr : fallthrough_addr;
                     end
                 end
 
@@ -254,31 +275,32 @@ module ex (
                     is_load_o     = 1'b1;
                     rd_addr_o     = rd_addr_i;
                     rd_wen_o      = rd_wen_i;
-                    mem_rd_addr_o = base_addr_add_addr_offset;
+                    mem_rd_addr_o = mem_addr;
+                    load_hits_dram_o = (mem_addr[31:18] == DRAM_REGION_TAG);
                 end
 
                 `INST_TYPE_S: begin
-                    mem_wd_addr_o = base_addr_add_addr_offset;
+                    mem_wd_addr_o = mem_addr;
                     case (func3)
                         `INST_SB: begin
-                            case (base_addr_add_addr_offset[1:0])
-                                2'b00: begin mem_wd_reg_o = 4'b0001; mem_wd_data_o = {24'b0, op2_i[7:0]}; end
-                                2'b01: begin mem_wd_reg_o = 4'b0010; mem_wd_data_o = {16'b0, op2_i[7:0], 8'b0}; end
-                                2'b10: begin mem_wd_reg_o = 4'b0100; mem_wd_data_o = {8'b0, op2_i[7:0], 16'b0}; end
-                                2'b11: begin mem_wd_reg_o = 4'b1000; mem_wd_data_o = {op2_i[7:0], 24'b0}; end
+                            case (mem_addr[1:0])
+                                2'b00: begin mem_wd_reg_o = 4'b0001; mem_wd_data_o = {24'b0, store_data_i[7:0]}; end
+                                2'b01: begin mem_wd_reg_o = 4'b0010; mem_wd_data_o = {16'b0, store_data_i[7:0], 8'b0}; end
+                                2'b10: begin mem_wd_reg_o = 4'b0100; mem_wd_data_o = {8'b0, store_data_i[7:0], 16'b0}; end
+                                2'b11: begin mem_wd_reg_o = 4'b1000; mem_wd_data_o = {store_data_i[7:0], 24'b0}; end
                                 default: begin mem_wd_reg_o = 4'b0000; mem_wd_data_o = 32'b0; end
                             endcase
                         end
                         `INST_SH: begin
-                            case (base_addr_add_addr_offset[1])
-                                1'b0: begin mem_wd_reg_o = 4'b0011; mem_wd_data_o = {16'b0, op2_i[15:0]}; end
-                                1'b1: begin mem_wd_reg_o = 4'b1100; mem_wd_data_o = {op2_i[15:0], 16'b0}; end
+                            case (mem_addr[1])
+                                1'b0: begin mem_wd_reg_o = 4'b0011; mem_wd_data_o = {16'b0, store_data_i[15:0]}; end
+                                1'b1: begin mem_wd_reg_o = 4'b1100; mem_wd_data_o = {store_data_i[15:0], 16'b0}; end
                                 default: begin mem_wd_reg_o = 4'b0000; mem_wd_data_o = 32'b0; end
                             endcase
                         end
                         `INST_SW: begin
                             mem_wd_reg_o  = 4'b1111;
-                            mem_wd_data_o = op2_i;
+                            mem_wd_data_o = store_data_i;
                         end
                         default: begin
                             mem_wd_reg_o  = 4'b0000;
@@ -297,8 +319,8 @@ module ex (
                         bp_ras_push_addr_o = fallthrough_addr;
                     end
 
-                    if (pred_taken_i == 1'b0) begin
-                        jump_addr_o = base_addr_add_addr_offset;
+                    if ((pred_taken_i == 1'b0) || (pred_target_i != jal_target_addr)) begin
+                        jump_addr_o = jal_target_addr;
                         jump_en_o   = 1'b1;
                     end
                 end
@@ -307,7 +329,7 @@ module ex (
                     rd_data_o   = inst_addr_i + 32'd4;
                     rd_addr_o   = rd_addr_i;
                     rd_wen_o    = rd_wen_i;
-                    jump_addr_o = base_addr_add_addr_offset & ~32'd1;
+                    jump_addr_o = jalr_target_addr;
 
                     if (ras_should_push_jalr == 1'b1) begin
                         bp_ras_push_en_o = 1'b1;
@@ -319,7 +341,7 @@ module ex (
                     end
 
                     if (ras_predicted_jalr == 1'b1) begin
-                        if ((pred_taken_i == 1'b0) || (pred_target_i != (base_addr_add_addr_offset & ~32'd1))) begin
+                        if ((pred_taken_i == 1'b0) || (pred_target_i != jalr_target_addr)) begin
                             jump_en_o = 1'b1;
                         end
                     end else begin
@@ -334,7 +356,7 @@ module ex (
                 end
 
                 `INST_LUI: begin
-                    rd_data_o = op1_i;
+                    rd_data_o = alu_op1;
                     rd_addr_o = rd_addr_i;
                     rd_wen_o  = rd_wen_i;
                 end

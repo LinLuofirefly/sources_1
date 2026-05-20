@@ -1,6 +1,9 @@
 `timescale 1ns / 1ps
 
 module tb_student_top;
+    localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
+    localparam [31:0] DRAM_ADDR_END   = 32'h8014_0000;
+
     reg         w_cpu_clk;
     reg         w_clk_50Mhz;
     reg         w_clk_rst;
@@ -65,7 +68,7 @@ module tb_student_top;
                 $display("CPU_WRITE T=%0t ADDR=%08h WSTRB=%b WDATA=%08h", $time, dut.perip_addr, dut.perip_wstrb, dut.perip_wdata);
             end
             if (dut.perip_rd_en) begin
-                $display("CPU_READ  T=%0t ADDR=%08h RDATA=%08h", $time, dut.perip_rd_addr, dut.load_rdata);
+                $display("CPU_READ  T=%0t ADDR=%08h RDATA=%08h", $time, dut.perip_rd_addr, dut.perip_rdata);
             end
             if (dut.bridge_inst.perip_write_req && dut.perip_addr == 32'h8020_0020) begin
                 $display("SEG_WRITE T=%0t DATA=%08h", $time, dut.perip_wdata);
@@ -102,13 +105,21 @@ module tb_student_top;
                     dut.Core_cpu.cpu_core.wb_rd_data_o,
                     dut.Core_cpu.cpu_core.regs_inst.regs[15],
                     dut.Core_cpu.cpu_core.regs_inst.regs[8],
-                    dut.dram_rd_en,
-                    dut.is_dram_load_d2,
-                    dut.mmio_rd_en,
-                    dut.is_mmio_load_d2,
-                    dut.bridge_inst.perip_rd_addr,
-                    dut.dram_rdata,
-                    dut.load_rdata
+                    (dut.perip_rd_en &&
+                     (dut.perip_rd_addr >= DRAM_ADDR_START) &&
+                     (dut.perip_rd_addr < DRAM_ADDR_END)),
+                    (dut.Core_cpu.cpu_core.mem2_align_is_load_o &&
+                     (dut.Core_cpu.cpu_core.mem2_align_mem_rd_addr_o >= DRAM_ADDR_START) &&
+                     (dut.Core_cpu.cpu_core.mem2_align_mem_rd_addr_o < DRAM_ADDR_END)),
+                    (dut.perip_rd_en &&
+                     ((dut.perip_rd_addr < DRAM_ADDR_START) ||
+                      (dut.perip_rd_addr >= DRAM_ADDR_END))),
+                    (dut.Core_cpu.cpu_core.mem2_align_is_load_o &&
+                     ((dut.Core_cpu.cpu_core.mem2_align_mem_rd_addr_o < DRAM_ADDR_START) ||
+                      (dut.Core_cpu.cpu_core.mem2_align_mem_rd_addr_o >= DRAM_ADDR_END))),
+                    dut.perip_rd_addr,
+                    dut.bridge_inst.dram_rdata,
+                    dut.perip_rdata
                 );
                 loop_dbg_count = loop_dbg_count + 1;
             end

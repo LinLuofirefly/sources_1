@@ -74,6 +74,9 @@
 `define CSR_MEPC    12'h341
 `define CSR_MCAUSE  12'h342
 
+`define DRAM_ADDR_START 32'h8010_0000
+`define DRAM_ADDR_END   32'h8013_FFFF
+
 // B type inst
 `define INST_TYPE_B 7'b1100011
 `define INST_BEQ    3'b000

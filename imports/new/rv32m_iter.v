@@ -12,56 +12,62 @@ module rv32m_iter (
     output reg  [31:0] result_o
 );
 
-    // A tiny 3-state FSM is enough here:
-    // IDLE waits for a new M instruction, MUL iterates shift-add,
-    // DIV iterates an aligned long-division loop.
-    localparam [1:0] RV32M_IDLE = 2'b00;
-    localparam [1:0] RV32M_MUL  = 2'b01;
-    localparam [1:0] RV32M_DIV  = 2'b10;
+    // PREP latches raw operands first, so the heavy signedness/absolute-value
+    // decode no longer fans out directly from ID/EX into the iterative state.
+    localparam [2:0] RV32M_IDLE       = 3'b000;
+    localparam [2:0] RV32M_PREP       = 3'b001;
+    localparam [2:0] RV32M_MUL        = 3'b010;
+    localparam [2:0] RV32M_DIV        = 3'b011;
+    localparam [2:0] RV32M_DIV_FINISH = 3'b100;
 
-    reg [1:0]  state_r;
+    reg [2:0]  state_r;
     reg        done_r;
     reg [2:0]  func3_r;
     reg [5:0]  iter_count_r;
+    reg [31:0] op1_raw_r;
+    reg [31:0] op2_raw_r;
 
     reg [63:0] mul_accum_r;
     reg [63:0] mul_multiplicand_r;
     reg [31:0] mul_multiplier_r;
     reg        mul_negate_r;
 
-    reg [63:0] div_remainder_r;
-    reg [63:0] div_divisor_shift_r;
+    reg [32:0] div_remainder_r;
+    reg [32:0] div_remainder_shift_r;
+    reg [31:0] div_dividend_r;
+    reg [31:0] div_divisor_r;
     reg [31:0] div_quotient_accum_r;
-    reg [31:0] div_quotient_bit_r;
     reg        div_quotient_negate_r;
     reg        div_remainder_negate_r;
     reg        div_return_remainder_r;
+    reg        div_phase_r;
+    reg [31:0] div_result_r;
 
-    wire is_mul_op = (func3_i == `INST_MUL)    ||
-                     (func3_i == `INST_MULH)   ||
-                     (func3_i == `INST_MULHSU) ||
-                     (func3_i == `INST_MULHU);
+    wire is_mul_op = (func3_r == `INST_MUL)    ||
+                     (func3_r == `INST_MULH)   ||
+                     (func3_r == `INST_MULHSU) ||
+                     (func3_r == `INST_MULHU);
 
-    wire is_signed_mul_a = (func3_i == `INST_MUL) ||
-                           (func3_i == `INST_MULH) ||
-                           (func3_i == `INST_MULHSU);
-    wire is_signed_mul_b = (func3_i == `INST_MUL) ||
-                           (func3_i == `INST_MULH);
+    wire is_signed_mul_a = (func3_r == `INST_MUL) ||
+                           (func3_r == `INST_MULH) ||
+                           (func3_r == `INST_MULHSU);
+    wire is_signed_mul_b = (func3_r == `INST_MUL) ||
+                           (func3_r == `INST_MULH);
 
     // Multiply is performed on magnitudes, then the final 64-bit product is
     // negated when the signedness combination requires it.
-    wire [31:0] mul_op1_abs = (is_signed_mul_a && op1_i[31]) ? (~op1_i + 32'd1) : op1_i;
-    wire [31:0] mul_op2_abs = (is_signed_mul_b && op2_i[31]) ? (~op2_i + 32'd1) : op2_i;
-    wire        mul_negate  = (is_signed_mul_a && op1_i[31]) ^ (is_signed_mul_b && op2_i[31]);
+    wire [31:0] mul_op1_abs = (is_signed_mul_a && op1_raw_r[31]) ? (~op1_raw_r + 32'd1) : op1_raw_r;
+    wire [31:0] mul_op2_abs = (is_signed_mul_b && op2_raw_r[31]) ? (~op2_raw_r + 32'd1) : op2_raw_r;
+    wire        mul_negate  = (is_signed_mul_a && op1_raw_r[31]) ^ (is_signed_mul_b && op2_raw_r[31]);
 
-    wire is_signed_div = (func3_i == `INST_DIV) || (func3_i == `INST_REM);
-    wire is_rem_op     = (func3_i == `INST_REM) || (func3_i == `INST_REMU);
+    wire is_signed_div = (func3_r == `INST_DIV) || (func3_r == `INST_REM);
+    wire is_rem_op     = (func3_r == `INST_REM) || (func3_r == `INST_REMU);
 
     // Divide/rem also run on magnitudes first. Quotient and remainder signs are
     // fixed only after the final unsigned iteration completes.
-    wire [31:0] div_op1_abs = (is_signed_div && op1_i[31]) ? (~op1_i + 32'd1) : op1_i;
-    wire [31:0] div_op2_abs = (is_signed_div && op2_i[31]) ? (~op2_i + 32'd1) : op2_i;
-    wire        div_overflow = is_signed_div && (op1_i == 32'h8000_0000) && (op2_i == 32'hffff_ffff);
+    wire [31:0] div_op1_abs = (is_signed_div && op1_raw_r[31]) ? (~op1_raw_r + 32'd1) : op1_raw_r;
+    wire [31:0] div_op2_abs = (is_signed_div && op2_raw_r[31]) ? (~op2_raw_r + 32'd1) : op2_raw_r;
+    wire        div_overflow = is_signed_div && (op1_raw_r == 32'h8000_0000) && (op2_raw_r == 32'hffff_ffff);
     wire        div_dividend_zero = (div_op1_abs == 32'b0);
     wire        div_dividend_less = (div_op1_abs < div_op2_abs);
     wire        div_divisor_one = (div_op2_abs == 32'd1);
@@ -72,28 +78,14 @@ module rv32m_iter (
     wire [31:0] mul_result_final = (func3_r == `INST_MUL) ? mul_product_final[31:0] : mul_product_final[63:32];
     wire        mul_last_cycle = (mul_multiplier_r[31:1] == 31'b0);
 
-    function [5:0] msb_index32;
-        input [31:0] value;
-        integer idx;
-        begin : msb_search
-            msb_index32 = 6'd0;
-            for (idx = 31; idx >= 0; idx = idx - 1) begin
-                if (value[idx] == 1'b1) begin
-                    msb_index32 = idx[5:0];
-                    disable msb_search;
-                end
-            end
-        end
-    endfunction
-
-    wire [5:0] div_align_shift = msb_index32(div_op1_abs) - msb_index32(div_op2_abs);
-
-    // Aligned long division:
-    // start with divisor shifted under the dividend MSB, then walk the divisor
-    // and quotient bit down together until the last useful quotient bit.
-    wire        div_can_subtract = (div_remainder_r >= div_divisor_shift_r);
-    wire [63:0] div_remainder_next = div_can_subtract ? (div_remainder_r - div_divisor_shift_r) : div_remainder_r;
-    wire [31:0] div_quotient_accum_next = div_can_subtract ? (div_quotient_accum_r | div_quotient_bit_r) : div_quotient_accum_r;
+    // Two-phase restoring divider:
+    // phase 0 shifts the next dividend bit into a 33-bit remainder register,
+    // phase 1 performs the compare/subtract and appends one quotient bit.
+    wire [32:0] div_trial_remainder = {div_remainder_r[31:0], div_dividend_r[31]};
+    wire        div_can_subtract = (div_remainder_shift_r >= {1'b0, div_divisor_r});
+    wire [32:0] div_remainder_next =
+        div_can_subtract ? (div_remainder_shift_r - {1'b0, div_divisor_r}) : div_remainder_shift_r;
+    wire [31:0] div_quotient_accum_next = {div_quotient_accum_r[30:0], div_can_subtract};
     wire [31:0] div_quotient_final = div_quotient_negate_r ? (~div_quotient_accum_next + 32'd1) : div_quotient_accum_next;
     wire [31:0] div_remainder_final = div_remainder_negate_r ? (~div_remainder_next[31:0] + 32'd1) : div_remainder_next[31:0];
 
@@ -106,17 +98,22 @@ module rv32m_iter (
             done_r                  <= 1'b0;
             func3_r                 <= 3'b0;
             iter_count_r            <= 6'b0;
+            op1_raw_r               <= 32'b0;
+            op2_raw_r               <= 32'b0;
             mul_accum_r             <= 64'b0;
             mul_multiplicand_r      <= 64'b0;
             mul_multiplier_r        <= 32'b0;
             mul_negate_r            <= 1'b0;
-            div_remainder_r         <= 64'b0;
-            div_divisor_shift_r     <= 64'b0;
+            div_remainder_r         <= 33'b0;
+            div_remainder_shift_r   <= 33'b0;
+            div_dividend_r          <= 32'b0;
+            div_divisor_r           <= 32'b0;
             div_quotient_accum_r    <= 32'b0;
-            div_quotient_bit_r      <= 32'b0;
             div_quotient_negate_r   <= 1'b0;
             div_remainder_negate_r  <= 1'b0;
             div_return_remainder_r  <= 1'b0;
+            div_phase_r             <= 1'b0;
+            div_result_r            <= 32'b0;
             result_o                <= 32'b0;
         end else begin
             if (done_r == 1'b1) begin
@@ -126,11 +123,18 @@ module rv32m_iter (
             case (state_r)
                 RV32M_IDLE: begin
                     if (start_i == 1'b1) begin
+                        state_r      <= RV32M_PREP;
                         func3_r      <= func3_i;
+                        op1_raw_r    <= op1_i;
+                        op2_raw_r    <= op2_i;
                         iter_count_r <= 6'd0;
+                    end
+                end
 
-                        if (is_mul_op == 1'b1) begin
+                RV32M_PREP: begin
+                    if (is_mul_op == 1'b1) begin
                             if ((mul_op1_abs == 32'b0) || (mul_op2_abs == 32'b0)) begin
+                                state_r  <= RV32M_IDLE;
                                 result_o <= 32'b0;
                                 done_r   <= 1'b1;
                             end else begin
@@ -140,35 +144,42 @@ module rv32m_iter (
                                 mul_multiplier_r   <= mul_op2_abs;
                                 mul_negate_r       <= mul_negate;
                             end
-                        end else if (op2_i == 32'b0) begin
+                    end else if (op2_raw_r == 32'b0) begin
                             // RISC-V mandates all-ones quotient and dividend remainder on divide-by-zero.
-                            result_o <= is_rem_op ? op1_i : 32'hffff_ffff;
+                            state_r  <= RV32M_IDLE;
+                            result_o <= is_rem_op ? op1_raw_r : 32'hffff_ffff;
                             done_r   <= 1'b1;
-                        end else if (div_overflow == 1'b1) begin
+                    end else if (div_overflow == 1'b1) begin
                             // Signed overflow only happens on INT_MIN / -1.
+                            state_r  <= RV32M_IDLE;
                             result_o <= is_rem_op ? 32'b0 : 32'h8000_0000;
                             done_r   <= 1'b1;
-                        end else if (div_dividend_zero == 1'b1) begin
+                    end else if (div_dividend_zero == 1'b1) begin
+                            state_r  <= RV32M_IDLE;
                             result_o <= 32'b0;
                             done_r   <= 1'b1;
-                        end else if (div_dividend_less == 1'b1) begin
-                            result_o <= is_rem_op ? op1_i : 32'b0;
+                    end else if (div_dividend_less == 1'b1) begin
+                            state_r  <= RV32M_IDLE;
+                            result_o <= is_rem_op ? op1_raw_r : 32'b0;
                             done_r   <= 1'b1;
-                        end else if (div_divisor_one == 1'b1) begin
+                    end else if (div_divisor_one == 1'b1) begin
+                            state_r  <= RV32M_IDLE;
                             result_o <= is_rem_op ? 32'b0 :
-                                        ((is_signed_div && (op1_i[31] ^ op2_i[31])) ? (~div_op1_abs + 32'd1) : div_op1_abs);
+                                        ((is_signed_div && (op1_raw_r[31] ^ op2_raw_r[31])) ? (~div_op1_abs + 32'd1) : div_op1_abs);
                             done_r   <= 1'b1;
-                        end else begin
+                    end else begin
                             state_r                <= RV32M_DIV;
-                            iter_count_r           <= div_align_shift;
-                            div_remainder_r        <= {32'b0, div_op1_abs};
-                            div_divisor_shift_r    <= ({32'b0, div_op2_abs} << div_align_shift);
+                            iter_count_r           <= 6'd32;
+                            div_remainder_r        <= 33'b0;
+                            div_remainder_shift_r  <= 33'b0;
+                            div_dividend_r         <= div_op1_abs;
+                            div_divisor_r          <= div_op2_abs;
                             div_quotient_accum_r   <= 32'b0;
-                            div_quotient_bit_r     <= (32'b1 << div_align_shift);
-                            div_quotient_negate_r  <= is_signed_div && (op1_i[31] ^ op2_i[31]);
-                            div_remainder_negate_r <= is_signed_div && op1_i[31];
+                            div_quotient_negate_r  <= is_signed_div && (op1_raw_r[31] ^ op2_raw_r[31]);
+                            div_remainder_negate_r <= is_signed_div && op1_raw_r[31];
                             div_return_remainder_r <= is_rem_op;
-                        end
+                            div_phase_r            <= 1'b0;
+                            div_result_r           <= 32'b0;
                     end
                 end
 
@@ -189,19 +200,28 @@ module rv32m_iter (
                 end
 
                 RV32M_DIV: begin
-                    div_remainder_r <= div_remainder_next;
-                    div_divisor_shift_r <= div_divisor_shift_r >> 1;
-                    div_quotient_accum_r <= div_quotient_accum_next;
-                    div_quotient_bit_r <= div_quotient_bit_r >> 1;
-
-                    // Only iterate across quotient bits that can actually be non-zero.
-                    if (iter_count_r == 6'd0) begin
-                        state_r  <= RV32M_IDLE;
-                        done_r   <= 1'b1;
-                        result_o <= div_return_remainder_r ? div_remainder_final : div_quotient_final;
+                    if (div_phase_r == 1'b0) begin
+                        div_remainder_shift_r <= div_trial_remainder;
+                        div_dividend_r        <= {div_dividend_r[30:0], 1'b0};
+                        div_phase_r           <= 1'b1;
                     end else begin
+                        div_remainder_r      <= div_remainder_next;
+                        div_quotient_accum_r <= div_quotient_accum_next;
+                        div_phase_r          <= 1'b0;
+
+                        if (iter_count_r == 6'd1) begin
+                            state_r      <= RV32M_DIV_FINISH;
+                            div_result_r <= div_return_remainder_r ? div_remainder_final : div_quotient_final;
+                        end
+
                         iter_count_r <= iter_count_r - 1'b1;
                     end
+                end
+
+                RV32M_DIV_FINISH: begin
+                    state_r  <= RV32M_IDLE;
+                    done_r   <= 1'b1;
+                    result_o <= div_result_r;
                 end
 
                 default: begin

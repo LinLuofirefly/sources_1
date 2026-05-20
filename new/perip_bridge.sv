@@ -67,6 +67,8 @@ module perip_bridge(
         end
     end
     logic [31:0] seg_wdata, cnt_rdata, dram_rdata;
+    logic [31:0] mmio_rdata_next;
+    logic [31:0] mmio_rdata_r;
     logic [39:0] seg_output;
     logic cnt_enable_cfg;
     logic perip_write_req;
@@ -144,17 +146,25 @@ module perip_bridge(
         end
     end
 
-    // read process: use pre-decoded address select (no address comparison on data path)
+    // Only MMIO read data is registered for one extra cycle; DRAM stays on the fast path.
     always_comb begin
         unique case (1'b1)
-            rd_is_dram_rr: perip_rdata = dram_rdata;
-            rd_is_cnt_rr:  perip_rdata = cnt_rdata;
-            rd_is_sw0_rr:  perip_rdata = sw_sync_d2[31:0];
-            rd_is_sw1_rr:  perip_rdata = sw_sync_d2[63:32];
-            rd_is_key_rr:  perip_rdata = {24'd0, key_sync_d2};
-            rd_is_seg_rr:  perip_rdata = seg_wdata;
-            default:       perip_rdata = 32'h0;
+            rd_is_cnt_rr:  mmio_rdata_next = cnt_rdata;
+            rd_is_sw0_rr:  mmio_rdata_next = sw_sync_d2[31:0];
+            rd_is_sw1_rr:  mmio_rdata_next = sw_sync_d2[63:32];
+            rd_is_key_rr:  mmio_rdata_next = {24'd0, key_sync_d2};
+            rd_is_seg_rr:  mmio_rdata_next = seg_wdata;
+            default:       mmio_rdata_next = 32'h0;
         endcase
+    end
+
+
+    always_comb begin
+        if (rd_is_dram_rr) begin
+            perip_rdata = dram_rdata;
+        end else begin
+            perip_rdata = mmio_rdata_next;
+        end
     end
 
     // seg driver
