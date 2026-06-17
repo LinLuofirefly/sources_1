@@ -15,6 +15,8 @@ module csr (
     wire [2:0]  func3    = inst_i[14:12];
     wire [11:0] csr_addr = inst_i[31:20];
     wire [6:0]  opcode   = inst_i[6:0];
+    wire [4:0]  rs1_addr = inst_i[19:15];
+    wire [4:0]  csr_uimm = inst_i[19:15];
 
     wire is_system = (opcode == `INST_SYSTEM);
     wire is_csr_op = is_system &&
@@ -32,8 +34,8 @@ module csr (
 
     wire csr_write_en = is_csr_op &&
                         ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRWI) ||
-                        (((func3 == `INST_CSRRS)  || (func3 == `INST_CSRRC) ||
-                          (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI)) && (csr_src_i != 32'b0)));
+                        (((func3 == `INST_CSRRS)  || (func3 == `INST_CSRRC))  && (rs1_addr != 5'b0)) ||
+                        (((func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI)) && (csr_uimm != 5'b0)));
 
     assign trap_jump_en_o = valid_i && (is_ecall || is_mret);
 

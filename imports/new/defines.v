@@ -77,6 +77,9 @@
 `define DRAM_ADDR_START 32'h8010_0000
 `define DRAM_ADDR_END   32'h8013_FFFF
 
+// Branch predictor sizing. 9 bits gives a 512-entry BHT/GHR path.
+`define BP_GHR_WIDTH 9
+
 // B type inst
 `define INST_TYPE_B 7'b1100011
 `define INST_BEQ    3'b000

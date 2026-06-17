@@ -6,10 +6,10 @@ module pc_reg (
     input  wire        jump_en,            
     
     // 魔法原语依然保留：严禁 Vivado 动用 CE 引脚
-    (* extract_enable = "no" *) output reg  [31:0] pc_o               
+    (* extract_enable = "no" *) (* max_fanout = 8 *) output reg  [31:0] pc_o               
 );
 
-    reg [31:0] next_pc;
+    (* max_fanout = 8 *)reg [31:0] next_pc;
 
     // =================================================================
     // 组合逻辑部分：专门负责算数

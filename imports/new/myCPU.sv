@@ -10,7 +10,8 @@ module myCPU (
     output logic [31:0]  perip_addr,
     output logic [3:0]   perip_wen,
     output logic [31:0]  perip_wdata,
-    input  logic [31:0]  perip_rdata,
+    input  logic [31:0]  perip_dram_rdata,
+    input  logic [31:0]  perip_mmio_rdata,
     output logic [31:0]  perip_rd_addr,
     output logic         perip_rd_en
 );
@@ -19,7 +20,8 @@ module myCPU (
         .clk           (cpu_clk),
         .rst_n         (~cpu_rst),
         .inst_i        (irom_data),
-        .ram_data_i    (perip_rdata),
+        .ram_data_i    (perip_dram_rdata),
+        .mmio_data_i   (perip_mmio_rdata),
         .pc_reg_pc_o   (irom_addr),
         .mem_rd_reg_o  (perip_rd_en),
         .mem_rd_addr_o (perip_rd_addr),

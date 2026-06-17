@@ -43,6 +43,7 @@ module student_top#(
 
     // perip
     logic [31:0] perip_addr, perip_wdata, perip_rdata;
+    logic [31:0] perip_dram_rdata, perip_mmio_rdata;
     logic [31:0] perip_rd_addr;
     logic         perip_rd_en;
     logic [3:0] perip_wstrb;
@@ -62,7 +63,8 @@ module student_top#(
         .perip_addr         (perip_addr),     
         .perip_wen          (perip_wstrb),       
         .perip_wdata        (perip_wdata),    
-        .perip_rdata        (perip_rdata),
+        .perip_dram_rdata   (perip_dram_rdata),
+        .perip_mmio_rdata   (perip_mmio_rdata),
         .perip_rd_addr      (perip_rd_addr),
         .perip_rd_en        (perip_rd_en)     
     );
@@ -82,6 +84,8 @@ module student_top#(
         .perip_wdata		(perip_wdata),
         .perip_wstrb			(perip_wstrb),
         .perip_rdata		(perip_rdata),
+        .perip_dram_rdata   (perip_dram_rdata),
+        .perip_mmio_rdata   (perip_mmio_rdata),
         .perip_rd_addr		(perip_rd_addr),
         .perip_rd_en		(perip_rd_en),
         .virtual_sw_input	(virtual_sw),

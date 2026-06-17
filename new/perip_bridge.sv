@@ -30,6 +30,8 @@ module perip_bridge(
     input  logic         perip_rd_en        ,
     input  logic [31:0]  perip_rd_addr      ,
     output logic [31:0]  perip_rdata		,
+    output logic [31:0]  perip_dram_rdata   ,
+    output logic [31:0]  perip_mmio_rdata   ,
 
     input  logic [63:0]  virtual_sw_input	,
     input  logic [7:0]   virtual_key_input	,	
@@ -81,9 +83,11 @@ module perip_bridge(
         if (rst) begin
             perip_rd_en_r  <= 1'b0;
             perip_rd_en_rr <= 1'b0;
+            mmio_rdata_r   <= 32'b0;
         end else begin
             perip_rd_en_r  <= perip_rd_en;
             perip_rd_en_rr <= perip_rd_en_r;
+            mmio_rdata_r   <= mmio_rdata_next;
         end
     end
 
@@ -146,7 +150,6 @@ module perip_bridge(
         end
     end
 
-    // Only MMIO read data is registered for one extra cycle; DRAM stays on the fast path.
     always_comb begin
         unique case (1'b1)
             rd_is_cnt_rr:  mmio_rdata_next = cnt_rdata;
@@ -163,9 +166,12 @@ module perip_bridge(
         if (rd_is_dram_rr) begin
             perip_rdata = dram_rdata;
         end else begin
-            perip_rdata = mmio_rdata_next;
+            perip_rdata = mmio_rdata_r;
         end
     end
+
+    assign perip_dram_rdata = dram_rdata;
+    assign perip_mmio_rdata = mmio_rdata_r;
 
     // seg driver
     display_seg seg_driver (

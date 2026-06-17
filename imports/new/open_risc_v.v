@@ -5,6 +5,7 @@ module open_risc_v (
     input  wire        rst_n,
     input  wire [31:0] inst_i,
     input  wire [31:0] ram_data_i,
+    input  wire [31:0] mmio_data_i,
     output wire [31:0] pc_reg_pc_o,
     output wire        mem_rd_reg_o,
     output wire [31:0] mem_rd_addr_o,
@@ -37,8 +38,7 @@ module open_risc_v (
     wire        bp_pred_taken_o;
     wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
-    wire [8:0]  bp_pred_ghr_o;
-    wire        bp_pred_flush_o;
+    wire [`BP_GHR_WIDTH-1:0] bp_pred_ghr_o;
 
     reg         bp_pred_flush_d1_r;
     reg         bp_replay_flush_d1_r;
@@ -47,8 +47,6 @@ module open_risc_v (
     wire        pc_jump_en_o;
 
     reg  [31:0] bp_fetch_pc_r;
-    reg         bp_fetch_valid_r;
-    reg         bp_fetch_valid_pending_r;
 
     // ------------------------------------------------------------------
     // HDU
@@ -63,7 +61,7 @@ module open_risc_v (
     wire [31:0] if_id_inst_o;
     wire        if_id_pred_taken_o;
     wire [31:0] if_id_pred_target_o;
-    wire [8:0]  if_id_pred_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] if_id_pred_ghr_o;
 
     wire        if_id_load_valid_o;
     wire        if_id_load_pred_taken_o;
@@ -114,7 +112,7 @@ module open_risc_v (
     wire [31:0] id_ex_store_data_o;
     wire        id_ex_pred_taken_o;
     wire [31:0] id_ex_pred_target_o;
-    wire [8:0]  id_ex_pred_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] id_ex_pred_ghr_o;
     wire [4:0]  id_ex_rs1_addr_o;
     wire [4:0]  id_ex_rs2_addr_o;
     wire        id_ex_use_rs1_o;
@@ -145,7 +143,7 @@ module open_risc_v (
 
     wire        bp_update_en_o;
     wire [31:0] bp_update_pc_o;
-    wire [8:0]  bp_update_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o;
     wire        bp_ras_push_en_o;
     wire        bp_ras_pop_en_o;
     wire [31:0] bp_ras_push_addr_o;
@@ -159,7 +157,7 @@ module open_risc_v (
     // ------------------------------------------------------------------
     wire        ex_mem_bp_update_en_o;
     wire [31:0] ex_mem_bp_update_pc_o;
-    wire [8:0]  ex_mem_bp_update_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] ex_mem_bp_update_ghr_o;
     wire        ex_mem_bp_ras_push_en_o;
     wire        ex_mem_bp_ras_pop_en_o;
     wire [31:0] ex_mem_bp_ras_push_addr_o;
@@ -167,7 +165,7 @@ module open_risc_v (
 
     wire        mem1_mem2_bp_update_en_o;
     wire [31:0] mem1_mem2_bp_update_pc_o;
-    wire [8:0]  mem1_mem2_bp_update_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] mem1_mem2_bp_update_ghr_o;
     wire        mem1_mem2_bp_ras_push_en_o;
     wire        mem1_mem2_bp_ras_pop_en_o;
     wire [31:0] mem1_mem2_bp_ras_push_addr_o;
@@ -175,7 +173,7 @@ module open_risc_v (
 
     wire        mem2_align_bp_update_en_o;
     wire [31:0] mem2_align_bp_update_pc_o;
-    wire [8:0]  mem2_align_bp_update_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] mem2_align_bp_update_ghr_o;
     wire        mem2_align_bp_ras_push_en_o;
     wire        mem2_align_bp_ras_pop_en_o;
     wire [31:0] mem2_align_bp_ras_push_addr_o;
@@ -183,7 +181,7 @@ module open_risc_v (
 
     wire        mem_wb_bp_update_en_o;
     wire [31:0] mem_wb_bp_update_pc_o;
-    wire [8:0]  mem_wb_bp_update_ghr_o;
+    wire [`BP_GHR_WIDTH-1:0] mem_wb_bp_update_ghr_o;
     wire        mem_wb_bp_ras_push_en_o;
     wire        mem_wb_bp_ras_pop_en_o;
     wire [31:0] mem_wb_bp_ras_push_addr_o;
@@ -260,6 +258,7 @@ module open_risc_v (
     wire [4:0]  mem_wb_rd_addr_o;
     wire [31:0] mem_wb_rd_data_o;
     wire        mem_wb_rd_wen_o;
+    wire [31:0] mem_wb_mem_rd_addr_o;
     wire        mem_wb_is_slow_load_o;
     wire [31:0] mem_wb_inst_o;
 
@@ -270,32 +269,26 @@ module open_risc_v (
     // Fetch / IF-ID / branch predictor accept control
     // ==================================================================
 
-    reg [1:0] fetch_warmup_r;
-
-    always @(posedge clk) begin
-        if (rst == 1'b0) begin
-            fetch_warmup_r <= 2'd0;
-        end else if (fetch_warmup_r != 2'd2) begin
-            fetch_warmup_r <= fetch_warmup_r + 2'd1;
-        end
-    end
-
-    wire fetch_ready = (fetch_warmup_r == 2'd2);
-
     wire bp_if_valid =
-        bp_fetch_valid_r & ~bp_pred_flush_d1_r;
+        ~bp_pred_flush_d1_r;
+
+    // A synchronous fetch package can coincide with the package already held
+    // by IF/ID, especially after a predicted redirect. Suppress only exact
+    // same-PC duplicates; unrelated sequential fetches must still pass.
+    wire ifid_duplicate =
+        if_id_load_valid_o && (bp_fetch_pc_r == if_id_inst_addr_o);
 
     wire ifid_fetch_valid =
-        fetch_ready &
-        bp_if_valid &
         ~ctrl_flush_ifid_o &
-        ~bp_pred_flush_d1_r;
+        ~bp_pred_flush_d1_r &
+        ~ifid_duplicate;
 
     wire ifid_direct_fire =
         ifid_fetch_valid &
         ~hdu_hold_flag_o &
         ~if_id_replay_pending_o;
 
+    // ifid_fetch_valid already suppresses exact replay duplicates.
     // 普通 fetch redirect：保持原逻辑，不要加 ~if_id_replaying_o
     wire bp_fetch_redirect =
         ifid_direct_fire &
@@ -304,7 +297,8 @@ module open_risc_v (
     // replay 出来的 IF/ID 包如果预测 taken，则本拍 redirect
     wire bp_replay_redirect =
         if_id_replaying_o &
-        if_id_pred_taken_o;
+        if_id_pred_taken_o &
+        ~hdu_hold_flag_o;
 
     assign bp_pred_taken_accepted_o =
         bp_fetch_redirect | bp_replay_redirect;
@@ -323,14 +317,10 @@ module open_risc_v (
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             bp_fetch_pc_r            <= 32'h8000_0000;
-            bp_fetch_valid_r         <= 1'b0;
-            bp_fetch_valid_pending_r <= 1'b0;
             bp_pred_flush_d1_r       <= 1'b0;
             bp_replay_flush_d1_r     <= 1'b0;
         end else begin
             bp_fetch_pc_r            <= pc_reg_pc_o;
-            bp_fetch_valid_r         <= bp_fetch_valid_pending_r;
-            bp_fetch_valid_pending_r <= fetch_ready;
 
             // 所有预测 redirect 都会让同步 IROM 下一拍产生 ghost fetch。
             bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
@@ -342,17 +332,10 @@ module open_risc_v (
 
     wire frontend_flush_ifid =
         ctrl_flush_ifid_o |
-        ex_jump_en_o |
         bp_replay_flush_d1_r;
 
     wire frontend_flush_idex =
         ctrl_flush_idex_o |
-        bp_replay_flush_d1_r;
-
-    wire bp_predictor_flush =
-        ex_jump_en_o |
-        ctrl_flush_ifid_o |
-        bp_pred_flush_d1_r |
         bp_replay_flush_d1_r;
 
     // ==================================================================
@@ -364,12 +347,9 @@ module open_risc_v (
         .if_valid_i      (bp_if_valid),
         .if_inst_i       (inst_i),
         .if_pc_i         (bp_fetch_pc_r),
-        .hold_flag_i     (hdu_hold_flag_o),
-        .flush_flag_i    (bp_predictor_flush),
         .pred_taken_o    (bp_pred_taken_o),
         .pred_target_o   (bp_pred_target_o),
         .pred_ghr_o      (bp_pred_ghr_o),
-        .pred_flush_o    (bp_pred_flush_o),
         .update_en_i     (mem_wb_bp_update_en_o),
         .update_pc_i     (mem_wb_bp_update_pc_o),
         .update_ghr_i    (mem_wb_bp_update_ghr_o),
@@ -382,16 +362,13 @@ module open_risc_v (
     // ==================================================================
     // PC
     // ==================================================================
-    wire pc_front_hold =
-        hdu_hold_flag_o |
-        ~bp_fetch_valid_r;
 
     pc_reg pc_reg_inst (
         .clk         (clk),
         .rst         (rst),
         .jump_en     (pc_jump_en_o),
         .jump_addr_i (pc_jump_addr_o),
-        .hold_flag_i (pc_front_hold),
+        .hold_flag_i (hdu_hold_flag_o),
         .pc_o        (pc_reg_pc_o)
     );
 
@@ -514,13 +491,14 @@ module open_risc_v (
         .jump_offset_o   (id_ex_jump_offset_o)
     );
 
-    assign mem2a_is_slow_load_o = mem2_align_is_load_o;
-    assign mem2_is_slow_load_o  = mem2_align_is_load_o &&
+    (* max_fanout = 8 *)assign mem2a_is_slow_load_o = mem1_mem2_is_load_o &&
+                                  ~mem1_mem2_load_hits_dram_o;
+    (* max_fanout = 8 *)assign mem2_is_slow_load_o  = mem2_align_is_load_o &&
                                   ~mem2_align_load_hits_dram_o;
 
-    assign id_is_jalr_w         = (id_inst_o[6:0] == `INST_JALR);
-    assign id_ex_is_branch_w    = (id_ex_inst_o[6:0] == `INST_TYPE_B);
-    assign id_ex_is_jalr_w      = (id_ex_inst_o[6:0] == `INST_JALR);
+    (* max_fanout = 8 *)assign id_is_jalr_w         = (id_inst_o[6:0] == `INST_JALR);
+    (* max_fanout = 8 *)assign id_ex_is_branch_w    = (id_ex_inst_o[6:0] == `INST_TYPE_B);
+    (* max_fanout = 8 *)assign id_ex_is_jalr_w      = (id_ex_inst_o[6:0] == `INST_JALR);
 
     // ==================================================================
     // Forwarding
@@ -546,10 +524,6 @@ module open_risc_v (
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
         .mem1_mem2_rd_wen_i       (mem1_mem2_rd_wen_o),
         .mem1_mem2_is_load_i      (mem1_mem2_is_load_o),
-        .mem2a_rd_addr_i          (mem2_align_rd_addr_o),
-        .mem2a_rd_data_i          (mem2_align_rd_data_o),
-        .mem2a_rd_wen_i           (mem2_align_rd_wen_o),
-        .mem2a_is_load_i          (mem2_align_is_load_o),
         .mem2_rd_addr_i           (mem2_rd_addr_o),
         .mem2_rd_data_i           (mem2_rd_data_o),
         .mem2_rd_wen_i            (mem2_rd_wen_o),
@@ -576,10 +550,9 @@ module open_risc_v (
         .id_use_rs1_i         (id_use_rs1_o),
         .id_use_rs2_i         (id_use_rs2_o),
         .ex_inst_i            (id_ex_inst_o),
-        .mem1_inst_i          (mem_inst_o),
-        .mem1_mem2_inst_i     (mem1_mem2_inst_o),
-        .mem2a_inst_i         (mem2_align_inst_o),
-        .mem2_inst_i          (mem2_inst_o),
+        .mem1_inst_i          (ex_mem_inst_o),
+        .mem2a_inst_i         (mem1_mem2_inst_o),
+        .mem2_inst_i          (mem2_align_inst_o),
         .mem_wb_inst_i        (mem_wb_inst_o),
         .mem2a_is_slow_load_i (mem2a_is_slow_load_o),
         .mem2_is_slow_load_i  (mem2_is_slow_load_o),
@@ -819,6 +792,7 @@ module open_risc_v (
         .rd_addr_i         (mem2_rd_addr_o),
         .rd_data_i         (mem2_rd_data_o),
         .rd_wen_i          (mem2_rd_wen_o),
+        .mem_rd_addr_i     (mem2_align_mem_rd_addr_o),
         .is_slow_load_i    (mem2_is_slow_load_o),
         .bp_update_en_i    (mem2_align_bp_update_en_o),
         .bp_update_pc_i    (mem2_align_bp_update_pc_o),
@@ -830,6 +804,7 @@ module open_risc_v (
         .rd_addr_o         (mem_wb_rd_addr_o),
         .rd_data_o         (mem_wb_rd_data_o),
         .rd_wen_o          (mem_wb_rd_wen_o),
+        .mem_rd_addr_o     (mem_wb_mem_rd_addr_o),
         .is_slow_load_o    (mem_wb_is_slow_load_o),
         .bp_update_en_o    (mem_wb_bp_update_en_o),
         .bp_update_pc_o    (mem_wb_bp_update_pc_o),
@@ -845,14 +820,17 @@ module open_risc_v (
     // WB
     // ==================================================================
     wb wb_inst (
-        .inst_i    (mem_wb_inst_o),
-        .rd_addr_i (mem_wb_rd_addr_o),
-        .rd_data_i (mem_wb_rd_data_o),
-        .rd_wen_i  (mem_wb_rd_wen_o),
-        .inst_o    (),
-        .rd_data_o (wb_rd_data_o),
-        .rd_wen_o  (wb_rd_wen_o),
-        .rd_addr_o (wb_rd_addr_o)
+        .inst_i         (mem_wb_inst_o),
+        .rd_addr_i      (mem_wb_rd_addr_o),
+        .rd_data_i      (mem_wb_rd_data_o),
+        .rd_wen_i       (mem_wb_rd_wen_o),
+        .mem_rd_addr_i  (mem_wb_mem_rd_addr_o),
+        .is_slow_load_i (mem_wb_is_slow_load_o),
+        .mmio_data_i    (mmio_data_i),
+        .inst_o         (),
+        .rd_data_o      (wb_rd_data_o),
+        .rd_wen_o       (wb_rd_wen_o),
+        .rd_addr_o      (wb_rd_addr_o)
     );
 
 endmodule

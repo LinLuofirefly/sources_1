@@ -13,7 +13,7 @@ module ex (
     input  wire [31:0] store_data_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
-    input  wire [8:0]  pred_ghr_i,
+    input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        rd_wen_i,
     input  wire        kill_i,
@@ -36,54 +36,54 @@ module ex (
     output reg  [3:0]  mem_wd_reg_o,
     output reg  [31:0] mem_wd_addr_o,
     output reg  [31:0] mem_wd_data_o,
-    output reg         is_load_o,
-    output reg         load_hits_dram_o,
+    (* max_fanout = 8 *)output reg         is_load_o,
+    (* max_fanout = 8 *)output reg         load_hits_dram_o,
 
-    output reg         bp_update_en_o,
-    output reg  [31:0] bp_update_pc_o,
-    output reg  [8:0]  bp_update_ghr_o,
-    output reg         bp_ras_push_en_o,
-    output reg         bp_ras_pop_en_o,
-    output reg  [31:0] bp_ras_push_addr_o,
-    output reg         bp_actual_taken_o,
-    output wire        rv32m_busy_o,
-    output wire        rv32m_done_o
+     (* max_fanout = 4 *)output reg         bp_update_en_o,
+     (* max_fanout = 4 *) output reg  [31:0] bp_update_pc_o,
+     (* max_fanout = 4 *)output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
+     (* max_fanout = 4 *)output reg         bp_ras_push_en_o,
+     (* max_fanout = 4 *)output reg         bp_ras_pop_en_o,
+    (* max_fanout = 4 *)output reg  [31:0] bp_ras_push_addr_o,
+    (* max_fanout = 4 *)output reg         bp_actual_taken_o,
+    (* max_fanout = 4 *) output wire        rv32m_busy_o,
+     (* max_fanout = 4 *)output wire        rv32m_done_o
 );
 
-    wire [6:0] opcode = inst_i[6:0];
-    wire [2:0] func3  = inst_i[14:12];
-    wire [6:0] func7  = inst_i[31:25];
-    wire [4:0] rd     = inst_i[11:7];
-    wire [4:0] rs1    = inst_i[19:15];
-    wire [4:0] shamt  = fwd_op2_i[4:0];
+     (* max_fanout = 4 *)wire [6:0] opcode = inst_i[6:0];
+     (* max_fanout = 4 *)wire [2:0] func3  = inst_i[14:12];
+     (* max_fanout = 4 *)wire [6:0] func7  = inst_i[31:25];
+     (* max_fanout = 4 *)wire [4:0] rd     = inst_i[11:7];
+     (* max_fanout = 4 *)wire [4:0] rs1    = inst_i[19:15];
+     (* max_fanout = 4 *)wire [4:0] shamt  = fwd_op2_i[4:0];
 
-    wire [31:0] alu_op1     = fwd_op1_i;
-    wire [31:0] alu_op2     = fwd_op2_i;
-    wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
-    wire [31:0] br_op1      = raw_op1_i;
-    wire [31:0] br_cmp_op2  = raw_cmp_op2_i;
+     (* max_fanout = 4 *)wire [31:0] alu_op1     = fwd_op1_i;
+     (* max_fanout = 4 *)wire [31:0] alu_op2     = fwd_op2_i;
+     (* max_fanout = 4 *)wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
+     (* max_fanout = 4 *)wire [31:0] br_op1      = raw_op1_i;
+     (* max_fanout = 4 *)wire [31:0] br_cmp_op2  = raw_cmp_op2_i;
 
-    wire br_eq             = (br_op1 == br_cmp_op2);
-    wire br_less_signed    = ($signed(br_op1) < $signed(br_cmp_op2));
-    wire br_less_unsigned  = (br_op1 < br_cmp_op2);
-    wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
-    wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
+     (* max_fanout = 4 *)wire br_eq             = (br_op1 == br_cmp_op2);
+     (* max_fanout = 4 *)wire br_less_signed    = ($signed(br_op1) < $signed(br_cmp_op2));
+     (* max_fanout = 4 *)wire br_less_unsigned  = (br_op1 < br_cmp_op2);
+     (* max_fanout = 4 *)wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
+     (* max_fanout = 4 *)wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
 
-    wire [31:0] op1_i_add_op2_i = alu_op1 + alu_op2;
-    wire [31:0] op1_i_and_op2_i = alu_op1 & alu_op2;
-    wire [31:0] op1_i_xor_op2_i = alu_op1 ^ alu_op2;
-    wire [31:0] op1_i_or_op2_i  = alu_op1 | alu_op2;
+     (* max_fanout = 4 *)wire [31:0] op1_i_add_op2_i = alu_op1 + alu_op2;
+     (* max_fanout = 4 *)wire [31:0] op1_i_and_op2_i = alu_op1 & alu_op2;
+     (* max_fanout = 4 *)wire [31:0] op1_i_xor_op2_i = alu_op1 ^ alu_op2;
+     (* max_fanout = 4 *)wire [31:0] op1_i_or_op2_i  = alu_op1 | alu_op2;
 
-    wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
-    wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
-    wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
-    wire        is_rv32m                   = (opcode == `INST_TYPE_R_M) && (func7 == `INST_FUNC7_M);
-    wire        is_system                  = (opcode == `INST_SYSTEM);
-    wire        is_csr_op                  = is_system &&
+     (* max_fanout = 4 *)wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
+     (* max_fanout = 4 *)wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
+     (* max_fanout = 4 *)wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
+     (* max_fanout = 4 *)wire        is_rv32m                   = (opcode == `INST_TYPE_R_M) && (func7 == `INST_FUNC7_M);
+     (* max_fanout = 4 *)wire        is_system                  = (opcode == `INST_SYSTEM);
+     (* max_fanout = 4 *)wire        is_csr_op                  = is_system &&
                                              ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  || (func3 == `INST_CSRRC) ||
                                               (func3 == `INST_CSRRWI) || (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
-    wire        is_ecall                   = (inst_i == `INST_ECALL);
-    wire        is_mret                    = (inst_i == `INST_MRET);
+    (* max_fanout = 4 *)wire        is_ecall                   = (inst_i == `INST_ECALL);
+    (* max_fanout = 4 *)wire        is_mret                    = (inst_i == `INST_MRET);
 
     wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
     wire [31:0] mem_addr           = fwd_base_i + mem_offset_i;
@@ -170,7 +170,7 @@ module ex (
         load_hits_dram_o   = 1'b0;
         bp_update_en_o     = 1'b0;
         bp_update_pc_o     = 32'b0;
-        bp_update_ghr_o    = 9'b0;
+        bp_update_ghr_o    = {`BP_GHR_WIDTH{1'b0}};
         bp_ras_push_en_o   = 1'b0;
         bp_ras_pop_en_o    = 1'b0;
         bp_ras_push_addr_o = 32'b0;
@@ -319,7 +319,7 @@ module ex (
                         bp_ras_push_addr_o = fallthrough_addr;
                     end
 
-                    if ((pred_taken_i == 1'b0) || (pred_target_i != jal_target_addr)) begin
+                    if (pred_taken_i == 1'b0) begin
                         jump_addr_o = jal_target_addr;
                         jump_en_o   = 1'b1;
                     end

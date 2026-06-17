@@ -12,7 +12,6 @@ module Hazard_detection_unit (
     input wire ex_done_i,
     input  wire [31:0] ex_inst_i,
     input  wire [31:0] mem1_inst_i,
-    input  wire [31:0] mem1_mem2_inst_i,
     input  wire [31:0] mem2a_inst_i,
     input  wire [31:0] mem2_inst_i,
     input  wire [31:0] mem_wb_inst_i,
@@ -31,9 +30,6 @@ module Hazard_detection_unit (
 
     wire [6:0] mem1_opcode      = mem1_inst_i[6:0];
     wire [4:0] mem1_rd          = mem1_inst_i[11:7];
-
-    wire [6:0] mem1_mem2_opcode = mem1_mem2_inst_i[6:0];
-    wire [4:0] mem1_mem2_rd     = mem1_mem2_inst_i[11:7];
 
     wire [6:0] mem2a_opcode     = mem2a_inst_i[6:0];
     wire [4:0] mem2a_rd         = mem2a_inst_i[11:7];
@@ -57,11 +53,6 @@ module Hazard_detection_unit (
         (mem1_rd != 5'b0) &&
         (mem1_opcode != `INST_TYPE_S) &&
         (mem1_opcode != `INST_TYPE_B);
-
-    wire mem1_mem2_writes_rd =
-        (mem1_mem2_rd != 5'b0) &&
-        (mem1_mem2_opcode != `INST_TYPE_S) &&
-        (mem1_mem2_opcode != `INST_TYPE_B);
 
     wire mem2a_writes_rd =
         (mem2a_rd != 5'b0) &&
@@ -92,11 +83,6 @@ module Hazard_detection_unit (
         ((id_use_rs1_i && (mem1_rd == id_rs1_addr_i)) ||
          (id_use_rs2_i && (mem1_rd == id_rs2_addr_i)));
 
-    wire mem1_mem2_dep_match =
-        mem1_mem2_writes_rd &&
-        ((id_use_rs1_i && (mem1_mem2_rd == id_rs1_addr_i)) ||
-         (id_use_rs2_i && (mem1_mem2_rd == id_rs2_addr_i)));
-
     wire mem2a_dep_match =
         mem2a_writes_rd &&
         ((id_use_rs1_i && (mem2a_rd == id_rs1_addr_i)) ||
@@ -124,10 +110,6 @@ module Hazard_detection_unit (
         (mem1_opcode == `INST_TYPE_L) &&
         mem1_dep_match;
 
-    wire mem1_mem2_load_dep =
-        (mem1_mem2_opcode == `INST_TYPE_L) &&
-        mem1_mem2_dep_match;
-
     wire mem2a_slow_load_dep =
         mem2a_is_slow_load_i &&
         (mem2a_opcode == `INST_TYPE_L) &&
@@ -153,7 +135,6 @@ module Hazard_detection_unit (
         id_is_control &&
         (ex_dep_match ||
          mem1_dep_match ||
-         mem1_mem2_dep_match ||
          mem2a_dep_match ||
          mem2_dep_match ||
          mem_wb_dep_match);
@@ -176,11 +157,6 @@ module Hazard_detection_unit (
         end
 
         if (mem1_load_dep) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
-        end
-
-        if (mem1_mem2_load_dep) begin
             hold_flag_o  = 1'b1;
             flush_flag_o = 1'b1;
         end

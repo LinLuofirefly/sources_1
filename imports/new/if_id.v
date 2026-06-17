@@ -13,7 +13,7 @@ module if_id (
     input  wire [31:0] inst_addr_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
-    input  wire [8:0]  pred_ghr_i,
+    input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
 
     input  wire        hold_flag_i,
     input  wire        flush_flag_i,
@@ -21,7 +21,7 @@ module if_id (
     output reg  [31:0] inst_addr_o,
     output reg         pred_taken_o,
     output reg  [31:0] pred_target_o,
-    output reg  [8:0]  pred_ghr_o,
+    output reg  [`BP_GHR_WIDTH-1:0] pred_ghr_o,
     output reg  [31:0] inst_o,
 
     // 本拍 IF/ID 是否真正装载/回放了一个包。
@@ -38,7 +38,7 @@ module if_id (
     reg [31:0] hold_inst_addr_reg;
     reg        hold_pred_taken_reg;
     reg [31:0] hold_pred_target_reg;
-    reg [8:0]  hold_pred_ghr_reg;
+    reg [`BP_GHR_WIDTH-1:0] hold_pred_ghr_reg;
 
     reg        is_holding_reg;
     reg        replaying_reg;
@@ -53,7 +53,7 @@ module if_id (
             inst_o               <= `INST_NOP;
             pred_taken_o         <= 1'b0;
             pred_target_o        <= 32'b0;
-            pred_ghr_o           <= 9'b0;
+            pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
 
             load_valid_o         <= 1'b0;
             load_pred_taken_o    <= 1'b0;
@@ -63,7 +63,7 @@ module if_id (
             hold_inst_addr_reg   <= 32'b0;
             hold_pred_taken_reg  <= 1'b0;
             hold_pred_target_reg <= 32'b0;
-            hold_pred_ghr_reg    <= 9'b0;
+            hold_pred_ghr_reg    <= {`BP_GHR_WIDTH{1'b0}};
 
             is_holding_reg       <= 1'b0;
             replaying_reg        <= 1'b0;
@@ -74,7 +74,7 @@ module if_id (
             load_valid_o         <= 1'b0;
             load_pred_taken_o    <= 1'b0;
             load_pred_target_o   <= 32'b0;
-            replaying_reg        <= 1'b0;
+            replaying_reg        <= replaying_reg;
 
             // 关键：hold 时仍然允许保存当前有效 fetch 包。
             // 这要求顶层 load_valid_i 不要被 hold gate 掉。
@@ -129,7 +129,7 @@ module if_id (
                 inst_o               <= `INST_NOP;
                 pred_taken_o         <= 1'b0;
                 pred_target_o        <= 32'b0;
-                pred_ghr_o           <= 9'b0;
+                pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
 
                 load_valid_o         <= 1'b0;
                 load_pred_taken_o    <= 1'b0;
