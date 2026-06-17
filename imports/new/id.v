@@ -30,6 +30,7 @@ module id (
 
     wire [6:0]  opcode = inst_i[6:0];
     wire [4:0]  rd     = inst_i[11:7];
+    wire [6:0]  func7  = inst_i[31:25];
     wire [2:0]  func3  = inst_i[14:12];
     wire [4:0]  rs1    = inst_i[19:15];
     wire [4:0]  rs2    = inst_i[24:20];
@@ -96,17 +97,12 @@ module id (
 
             `INST_TYPE_R_M: begin
                 case (func3)
-                    `INST_ADD_SUB, `INST_SLT, `INST_SLTU,
-                    `INST_OR, `INST_XOR, `INST_AND: begin
-                        op1_o   = rs1_data_i;
-                        op2_o   = rs2_data_i;
+                    `INST_ADD_SUB, `INST_SLL, `INST_SLT, `INST_SLTU,
+                    `INST_XOR, `INST_SR, `INST_OR, `INST_AND: begin
+                        op1_o     = rs1_data_i;
+                        op2_o     = rs2_data_i;       // 保留完整 rs2
                         cmp_op2_o = rs2_data_i;
-                        reg_wen = 1'b1;
-                    end
-                    `INST_SLL, `INST_SR: begin
-                        op1_o   = rs1_data_i;
-                        op2_o   = {27'b0, rs2_data_i[4:0]};
-                        reg_wen = 1'b1;
+                        reg_wen   = 1'b1;
                     end
                     default: begin
                     end

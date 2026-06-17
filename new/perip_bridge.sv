@@ -76,6 +76,8 @@ module perip_bridge(
     logic perip_write_req;
     logic perip_rd_en_r;
     logic perip_rd_en_rr;
+    logic wr_is_dram;
+    logic [3:0] dram_wstrb;
 
     assign perip_write_req = |perip_wstrb;
 
@@ -190,13 +192,18 @@ module perip_bridge(
     assign seg_output[27] = 0;
     assign seg_output[37] = 0;
     
+    assign wr_is_dram =
+        perip_addr >= DRAM_ADDR_START &&
+        perip_addr <= DRAM_ADDR_END;
 
+    assign dram_wstrb = wr_is_dram ? perip_wstrb : 4'b0000;
+    
     // dram rw
     dram_driver dram_driver_inst (
         .clk				(clk),
         .perip_addr			(perip_addr[17:0]),
         .perip_wdata		(perip_wdata),
-        .perip_wstrb		(perip_wstrb),
+        .perip_wstrb		(dram_wstrb),
         .perip_rdata		(dram_rdata),
         .perip_rd_en        (perip_rd_en),
         .perip_rd_addr      (perip_rd_addr[17:0])
