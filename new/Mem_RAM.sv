@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module Mem_RAM (
     input  wire        clka,
     input  wire [15:0] addra,

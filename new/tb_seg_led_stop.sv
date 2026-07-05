@@ -2,7 +2,7 @@
 `include "defines.v"
 
 `ifndef TB_CPU_HALF_PERIOD_NS
-`define TB_CPU_HALF_PERIOD_NS 2.5
+`define TB_CPU_HALF_PERIOD_NS 2.941176
 `endif
 
 module tb_seg_led_stop;
@@ -514,7 +514,7 @@ module tb_seg_led_stop;
             if (dut.perip_wstrb != 4'b0000 && dut.perip_addr == LED_ADDR) begin
                 led_write_count = led_write_count + 1;
                 $display("LED_WRITE #%0d cyc=%0d pc=%08h data=%08h seg_writes=%0d", led_write_count, cycle_count, dut.pc, dut.perip_wdata, seg_write_count);
-                if (led_write_count == 1) begin
+                if (led_write_count == 9) begin
                     print_bp_stats();
                     $display("SEG_LED_STOP_DONE led=%08h seg=%010h seg_writes=%0d led_writes=%0d cyc=%0d",
                              virtual_led, virtual_seg, seg_write_count, led_write_count, cycle_count);

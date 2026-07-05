@@ -1,5 +1,4 @@
-`include "defines.v"
-
+`timescale 1ns / 1ps
 module forwarding (
     input  wire [31:0] id_ex_op1_i,
     input  wire [31:0] id_ex_op2_i,
@@ -9,9 +8,6 @@ module forwarding (
 
     input  wire [4:0]  id_ex_rs1_addr_i,
     input  wire [4:0]  id_ex_rs2_addr_i,
-
-    input  wire        id_ex_is_branch_i,
-    input  wire        id_ex_is_jalr_i,
 
     input  wire        id_ex_use_rs1_i,
     input  wire        id_ex_use_rs2_i,
@@ -26,6 +22,7 @@ module forwarding (
     input  wire [31:0] mem1_mem2_rd_data_i,
     input  wire        mem1_mem2_rd_wen_i,
     input  wire        mem1_mem2_is_load_i,
+    input  wire        mem1_mem2_load_cache_hit_i,
 
     input  wire [4:0]  mem2_rd_addr_i,
     input  wire [31:0] mem2_rd_data_i,
@@ -53,20 +50,18 @@ module forwarding (
     // ================================================================
     // ALU op1 forwarding
     //
-    // branch 的 rs1 会进入 branch compare -> PC。
-    // 因此 branch 时禁止 op1 forwarding。
-    // 非 branch 的普通 ALU 仍然保留完整 forwarding。
+    // branch ??rs1 ?????branch compare -> PC??
+    // ??? branch ?????op1 forwarding??
+    // ??branch ?????ALU ????????? forwarding??
     // ================================================================
 
     // rs1 is used both as ALU op1 and as load/store base. Share the
     // expensive rd==rs1 comparators, then gate each use below.
     wire rs1_forward_allowed =
-        id_ex_use_rs1_i &&
-        !id_ex_is_branch_i;
+        id_ex_use_rs1_i;
 
     wire base_forward_allowed =
-        id_ex_use_base_addr_i &&
-        !id_ex_is_jalr_i;
+        id_ex_use_base_addr_i;
 
     wire rs1_match_ex_mem =
         (id_ex_rs1_addr_i != 5'b0) &&
@@ -78,7 +73,7 @@ module forwarding (
         (id_ex_rs1_addr_i != 5'b0) &&
         mem1_mem2_rd_wen_i &&
         (mem1_mem2_rd_addr_i == id_ex_rs1_addr_i) &&
-        !mem1_mem2_is_load_i;
+        (!mem1_mem2_is_load_i || mem1_mem2_load_cache_hit_i);
 
     wire rs1_match_mem2 =
         (id_ex_rs1_addr_i != 5'b0) &&
@@ -104,7 +99,7 @@ module forwarding (
     // ================================================================
     // ALU op2 forwarding
     //
-    // 普通 ALU op2 不影响 PC，保留完整 forwarding。
+    // ????ALU op2 ?????PC????????forwarding??
     // ================================================================
 
     wire rs2_alu_match_ex_mem =
@@ -119,7 +114,7 @@ module forwarding (
         (id_ex_rs2_addr_i != 5'b0) &&
         mem1_mem2_rd_wen_i &&
         (mem1_mem2_rd_addr_i == id_ex_rs2_addr_i) &&
-        !mem1_mem2_is_load_i;
+        (!mem1_mem2_is_load_i || mem1_mem2_load_cache_hit_i);
 
     wire rs2_alu_match_mem2 =
         id_ex_use_rs2_i &&
@@ -145,17 +140,17 @@ module forwarding (
     // ================================================================
     // Branch compare rs2 forwarding
     //
-    // 完全禁止 branch compare operand2 forwarding。
-    // branch 的 rs2 只使用 ID/EX 中已经读好的 cmp_op2。
+    // ?????? branch compare operand2 forwarding??
+    // branch ??rs2 ?????ID/EX ????????? cmp_op2??
     // ================================================================
 
     wire [2:0] rs2_cmp_sel =
-        id_ex_is_branch_i ? SEL_ID_EX : rs2_alu_sel;
+        rs2_alu_sel;
 
     // ================================================================
     // Store data forwarding
     //
-    // store data 不影响 PC，保留完整 forwarding。
+    // store data ?????PC????????forwarding??
     // ================================================================
 
     wire [2:0] rs2_store_sel = rs2_alu_sel;
@@ -163,8 +158,8 @@ module forwarding (
     // ================================================================
     // Base address forwarding
     //
-    // load/store base 需要 forwarding，否则栈和访存地址会错。
-    // JALR/RET base 会影响 PC，因此只在 JALR 时禁止 base forwarding。
+    // load/store base ????forwarding???????????????????
+    // JALR/RET base ?????PC????????JALR ?????base forwarding??
     // ================================================================
 
     wire [2:0] base_sel =
@@ -219,3 +214,4 @@ module forwarding (
     end
 
 endmodule
+

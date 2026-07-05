@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 `include "defines.v"
 
 module open_risc_v_no_warm (

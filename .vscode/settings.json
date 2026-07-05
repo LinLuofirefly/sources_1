@@ -1,3 +1,19 @@
 {
-  "chatgpt.runCodexInWindowsSubsystemForLinux": false
+  "chatgpt.runCodexInWindowsSubsystemForLinux": false,
+  "verilog.linting.iverilog.includePath": [
+    "imports/new",
+    "new"
+  ],
+  "verilog.linting.verilator.includePath": [
+    "imports/new",
+    "new"
+  ],
+  "verilog.linting.xvlog.includePath": [
+    "imports/new",
+    "new"
+  ],
+  "verilog.linting.slang.includePath": [
+    "imports/new",
+    "new"
+  ]
 }

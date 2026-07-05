@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module ctrl (
     input  wire        clk,
     input  wire        rst,
@@ -7,13 +8,13 @@ module ctrl (
     output wire        jump_en_o,
     output wire [31:0] jump_addr_o,
     output wire        kill_ex_o,
-    (* max_fanout = 32 *) output wire flush_ifid_o,
-    (* max_fanout = 32 *) output wire flush_idex_o,
-    (* max_fanout = 32 *) output wire flush_flag_o
+    (* max_fanout = 4 *) output wire flush_ifid_o,
+    (* max_fanout = 4 *) output wire flush_idex_o,
+    (* max_fanout = 4 *) output wire flush_flag_o
 );
 
     // Delay one cycle to clear the ghost instruction from synchronous IROM.
-    reg jump_en_d1;
+   (* max_fanout = 4 *) reg jump_en_d1;
 
     always @(posedge clk) begin
         if (!rst) begin

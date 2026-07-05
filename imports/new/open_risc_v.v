@@ -1,4 +1,6 @@
+`timescale 1ns / 1ps
 `include "defines.v"
+`include "dram_cache.v"
 
 module open_risc_v (
     input  wire        clk,
@@ -16,10 +18,6 @@ module open_risc_v (
 
     localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
     localparam [31:0] DRAM_ADDR_END   = 32'h8014_0000;
-
-    wire        id_ex_is_branch_w;
-    wire        id_is_jalr_w;
-    wire        id_ex_is_jalr_w;
 
     wire rst = rst_n;
 
@@ -90,6 +88,26 @@ module open_risc_v (
     wire        id_use_rs2_o;
     wire        id_is_branch_o;
     wire        id_use_base_addr_o;
+    wire [2:0]  id_dec_func3_o;
+    wire        id_dec_func7_bit5_o;
+    wire        id_dec_func7_is_r_o;
+    wire        id_dec_func7_is_sub_o;
+    wire        id_dec_is_op_imm_o;
+    wire        id_dec_is_op_reg_o;
+    wire        id_dec_is_branch_o;
+    wire        id_dec_is_load_o;
+    wire        id_dec_is_store_o;
+    wire        id_dec_is_jal_o;
+    wire        id_dec_is_jalr_o;
+    wire        id_dec_is_auipc_o;
+    wire        id_dec_is_lui_o;
+    wire        id_dec_is_system_o;
+    wire        id_dec_is_rv32m_o;
+    wire        id_dec_is_csr_op_o;
+    wire        id_dec_is_call_jal_o;
+    wire        id_dec_ras_should_push_jalr_o;
+    wire        id_dec_ras_should_pop_jalr_o;
+    wire        id_dec_ras_predicted_jalr_o;
     wire        data_read_en;
 
     // ------------------------------------------------------------------
@@ -124,6 +142,26 @@ module open_risc_v (
     wire [31:0] id_ex_branch_offset_o;
     wire [31:0] id_ex_mem_offset_o;
     wire [31:0] id_ex_jump_offset_o;
+    wire [2:0]  id_ex_func3_o;
+    wire        id_ex_func7_bit5_o;
+    wire        id_ex_func7_is_r_o;
+    wire        id_ex_func7_is_sub_o;
+    wire        id_ex_is_op_imm_o;
+    wire        id_ex_is_op_reg_o;
+    wire        id_ex_is_branch_o;
+    wire        id_ex_is_load_o;
+    wire        id_ex_is_store_o;
+    wire        id_ex_is_jal_o;
+    wire        id_ex_is_jalr_o;
+    wire        id_ex_is_auipc_o;
+    wire        id_ex_is_lui_o;
+    wire        id_ex_is_system_o;
+    wire        id_ex_is_rv32m_o;
+    wire        id_ex_is_csr_op_o;
+    wire        id_ex_is_call_jal_o;
+    wire        id_ex_ras_should_push_jalr_o;
+    wire        id_ex_ras_should_pop_jalr_o;
+    wire        id_ex_ras_predicted_jalr_o;
 
     // ------------------------------------------------------------------
     // EX
@@ -171,14 +209,6 @@ module open_risc_v (
     wire [31:0] mem1_mem2_bp_ras_push_addr_o;
     wire        mem1_mem2_bp_actual_taken_o;
 
-    wire        mem2_align_bp_update_en_o;
-    wire [31:0] mem2_align_bp_update_pc_o;
-    wire [`BP_GHR_WIDTH-1:0] mem2_align_bp_update_ghr_o;
-    wire        mem2_align_bp_ras_push_en_o;
-    wire        mem2_align_bp_ras_pop_en_o;
-    wire [31:0] mem2_align_bp_ras_push_addr_o;
-    wire        mem2_align_bp_actual_taken_o;
-
     wire        mem_wb_bp_update_en_o;
     wire [31:0] mem_wb_bp_update_pc_o;
     wire [`BP_GHR_WIDTH-1:0] mem_wb_bp_update_ghr_o;
@@ -209,6 +239,9 @@ module open_risc_v (
     wire        ex_mem_load_hits_dram_o;
     wire [31:0] ex_mem_inst_o;
     wire [31:0] ex_mem_mem_rd_addr_o;
+    wire        ex_mem_store_load_fwd_valid_o;
+    wire [3:0]  ex_mem_store_load_fwd_wstrb_o;
+    wire [31:0] ex_mem_store_load_fwd_data_o;
 
     // ------------------------------------------------------------------
     // MEM1
@@ -230,17 +263,10 @@ module open_risc_v (
     wire [31:0] mem1_mem2_mem_rd_addr_o;
     wire        mem1_mem2_is_load_o;
     wire        mem1_mem2_load_hits_dram_o;
-
-    // ------------------------------------------------------------------
-    // MEM2 align
-    // ------------------------------------------------------------------
-    wire [4:0]  mem2_align_rd_addr_o;
-    wire [31:0] mem2_align_rd_data_o;
-    wire        mem2_align_rd_wen_o;
-    wire [31:0] mem2_align_inst_o;
-    wire [31:0] mem2_align_mem_rd_addr_o;
-    wire        mem2_align_is_load_o;
-    wire        mem2_align_load_hits_dram_o;
+    wire        mem1_mem2_load_cache_hit_o;
+    wire        mem1_mem2_store_load_fwd_valid_o;
+    wire [3:0]  mem1_mem2_store_load_fwd_wstrb_o;
+    wire [31:0] mem1_mem2_store_load_fwd_data_o;
 
     // ------------------------------------------------------------------
     // MEM2
@@ -249,7 +275,6 @@ module open_risc_v (
     wire [4:0]  mem2_rd_addr_o;
     wire [31:0] mem2_rd_data_o;
     wire        mem2_rd_wen_o;
-    wire        mem2a_is_slow_load_o;
     wire        mem2_is_slow_load_o;
 
     // ------------------------------------------------------------------
@@ -262,9 +287,56 @@ module open_risc_v (
     wire        mem_wb_is_slow_load_o;
     wire [31:0] mem_wb_inst_o;
 
-    assign mem_rd_reg_o  = ex_mem_is_load_o;
-    assign mem_rd_addr_o = ex_mem_mem_rd_addr_o;
+    assign mem_rd_reg_o  = ex_is_load_o;
+    assign mem_rd_addr_o = ex_rd_mem_addr_o;
 
+    wire ex_mem_store_hits_dram =
+        (ex_mem_wd_addr_o >= DRAM_ADDR_START) &&
+        (ex_mem_wd_addr_o <  DRAM_ADDR_END);
+
+    wire store_load_fwd_valid_ex =
+        ex_is_load_o &&
+        ex_load_hits_dram_o &&
+        (|ex_mem_wd_reg_o) &&
+        ex_mem_store_hits_dram &&
+        (ex_rd_mem_addr_o[31:2] == ex_mem_wd_addr_o[31:2]);
+
+    wire [3:0]  store_load_fwd_wstrb_ex = ex_mem_wd_reg_o;
+    wire [31:0] store_load_fwd_data_ex  = ex_mem_wd_data_o;
+
+    wire        mem1_load_cache_hit;
+    wire [31:0] mem1_rd_data_to_mem2;
+
+    dram_cache #(
+        .DRAM_ADDR_START(DRAM_ADDR_START),
+        .DRAM_ADDR_END  (DRAM_ADDR_END),
+        .INDEX_BITS     (6)
+    ) dram_cache_inst (
+        .clk                         (clk),
+        .rst                         (rst),
+        .ex_load_addr_i              (ex_rd_mem_addr_o),
+        .mem1_is_load_i              (ex_mem_is_load_o),
+        .mem1_load_hits_dram_i       (ex_mem_load_hits_dram_o),
+        .mem1_inst_i                 (ex_mem_inst_o),
+        .mem1_load_addr_i            (ex_mem_mem_rd_addr_o),
+        .mem1_uncached_rd_data_i     (mem_out_rd_data_o),
+        .mem1_store_load_fwd_valid_i (ex_mem_store_load_fwd_valid_o),
+        .mem1_store_load_fwd_wstrb_i (ex_mem_store_load_fwd_wstrb_o),
+        .mem1_store_load_fwd_data_i  (ex_mem_store_load_fwd_data_o),
+        .mem2_is_load_i              (mem1_mem2_is_load_o),
+        .mem2_load_hits_dram_i       (mem1_mem2_load_hits_dram_o),
+        .mem2_load_cache_hit_i       (mem1_mem2_load_cache_hit_o),
+        .mem2_load_addr_i            (mem1_mem2_mem_rd_addr_o),
+        .mem2_ram_data_i             (ram_data_i),
+        .mem2_store_load_fwd_valid_i (mem1_mem2_store_load_fwd_valid_o),
+        .mem2_store_load_fwd_wstrb_i (mem1_mem2_store_load_fwd_wstrb_o),
+        .mem2_store_load_fwd_data_i  (mem1_mem2_store_load_fwd_data_o),
+        .store_wstrb_i               (w_en),
+        .store_addr_i                (w_addr_i),
+        .store_data_i                (w_data_i),
+        .mem1_load_cache_hit_o       (mem1_load_cache_hit),
+        .mem1_rd_data_o              (mem1_rd_data_to_mem2)
+    );
     // ==================================================================
     // Fetch / IF-ID / branch predictor accept control
     // ==================================================================
@@ -289,12 +361,12 @@ module open_risc_v (
         ~if_id_replay_pending_o;
 
     // ifid_fetch_valid already suppresses exact replay duplicates.
-    // 普通 fetch redirect：保持原逻辑，不要加 ~if_id_replaying_o
+    // ???fetch redirect?????????? ~if_id_replaying_o
     wire bp_fetch_redirect =
         ifid_direct_fire &
         bp_pred_taken_o;
 
-    // replay 出来的 IF/ID 包如果预测 taken，则本拍 redirect
+    // replay ????IF/ID ??????taken???? redirect
     wire bp_replay_redirect =
         if_id_replaying_o &
         if_id_pred_taken_o &
@@ -306,8 +378,8 @@ module open_risc_v (
     assign pc_jump_en_o =
         ctrl_jump_en_o | bp_pred_taken_accepted_o;
 
-    // 只改这里：当 fetch redirect 和 replay redirect 同拍发生时，
-    // 地址优先选 replay 的 if_id_pred_target_o
+    // ?????? fetch redirect ??replay redirect ??????
+    // ??????replay ??if_id_pred_target_o
     assign pc_jump_addr_o =
         ctrl_jump_en_o     ? ctrl_jump_addr_o :
         bp_replay_redirect ? if_id_pred_target_o :
@@ -322,10 +394,10 @@ module open_risc_v (
         end else begin
             bp_fetch_pc_r            <= pc_reg_pc_o;
 
-            // 所有预测 redirect 都会让同步 IROM 下一拍产生 ghost fetch。
+            // ?????redirect ??????IROM ??????ghost fetch??
             bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
 
-            // replay redirect 专用保护。
+            // replay redirect ??????
             bp_replay_flush_d1_r     <= bp_replay_redirect;
         end
     end
@@ -438,7 +510,27 @@ module open_risc_v (
         .is_branch_o     (id_is_branch_o),
         .use_rs1_o       (id_use_rs1_o),
         .use_rs2_o       (id_use_rs2_o),
-        .use_base_addr_o (id_use_base_addr_o)
+        .use_base_addr_o (id_use_base_addr_o),
+        .ex_func3_o      (id_dec_func3_o),
+        .ex_func7_bit5_o (id_dec_func7_bit5_o),
+        .ex_func7_is_r_o (id_dec_func7_is_r_o),
+        .ex_func7_is_sub_o(id_dec_func7_is_sub_o),
+        .ex_is_op_imm_o  (id_dec_is_op_imm_o),
+        .ex_is_op_reg_o  (id_dec_is_op_reg_o),
+        .ex_is_branch_o  (id_dec_is_branch_o),
+        .ex_is_load_o    (id_dec_is_load_o),
+        .ex_is_store_o   (id_dec_is_store_o),
+        .ex_is_jal_o     (id_dec_is_jal_o),
+        .ex_is_jalr_o    (id_dec_is_jalr_o),
+        .ex_is_auipc_o   (id_dec_is_auipc_o),
+        .ex_is_lui_o     (id_dec_is_lui_o),
+        .ex_is_system_o  (id_dec_is_system_o),
+        .ex_is_rv32m_o   (id_dec_is_rv32m_o),
+        .ex_is_csr_op_o  (id_dec_is_csr_op_o),
+        .ex_is_call_jal_o(id_dec_is_call_jal_o),
+        .ex_ras_should_push_jalr_o(id_dec_ras_should_push_jalr_o),
+        .ex_ras_should_pop_jalr_o (id_dec_ras_should_pop_jalr_o),
+        .ex_ras_predicted_jalr_o  (id_dec_ras_predicted_jalr_o)
     );
 
     // ==================================================================
@@ -469,6 +561,26 @@ module open_risc_v (
         .branch_offset_i (id_branch_offset_o),
         .mem_offset_i    (id_mem_offset_o),
         .jump_offset_i   (id_jump_offset_o),
+        .ex_func3_i      (id_dec_func3_o),
+        .ex_func7_bit5_i (id_dec_func7_bit5_o),
+        .ex_func7_is_r_i (id_dec_func7_is_r_o),
+        .ex_func7_is_sub_i(id_dec_func7_is_sub_o),
+        .ex_is_op_imm_i  (id_dec_is_op_imm_o),
+        .ex_is_op_reg_i  (id_dec_is_op_reg_o),
+        .ex_is_branch_i  (id_dec_is_branch_o),
+        .ex_is_load_i    (id_dec_is_load_o),
+        .ex_is_store_i   (id_dec_is_store_o),
+        .ex_is_jal_i     (id_dec_is_jal_o),
+        .ex_is_jalr_i    (id_dec_is_jalr_o),
+        .ex_is_auipc_i   (id_dec_is_auipc_o),
+        .ex_is_lui_i     (id_dec_is_lui_o),
+        .ex_is_system_i  (id_dec_is_system_o),
+        .ex_is_rv32m_i   (id_dec_is_rv32m_o),
+        .ex_is_csr_op_i  (id_dec_is_csr_op_o),
+        .ex_is_call_jal_i(id_dec_is_call_jal_o),
+        .ex_ras_should_push_jalr_i(id_dec_ras_should_push_jalr_o),
+        .ex_ras_should_pop_jalr_i (id_dec_ras_should_pop_jalr_o),
+        .ex_ras_predicted_jalr_i  (id_dec_ras_predicted_jalr_o),
         .inst_o          (id_ex_inst_o),
         .inst_addr_o     (id_ex_inst_addr_o),
         .op1_o           (id_ex_op1_o),
@@ -488,17 +600,31 @@ module open_risc_v (
         .base_addr_o     (id_ex_base_addr_o),
         .branch_offset_o (id_ex_branch_offset_o),
         .mem_offset_o    (id_ex_mem_offset_o),
-        .jump_offset_o   (id_ex_jump_offset_o)
+        .jump_offset_o   (id_ex_jump_offset_o),
+        .ex_func3_o      (id_ex_func3_o),
+        .ex_func7_bit5_o (id_ex_func7_bit5_o),
+        .ex_func7_is_r_o (id_ex_func7_is_r_o),
+        .ex_func7_is_sub_o(id_ex_func7_is_sub_o),
+        .ex_is_op_imm_o  (id_ex_is_op_imm_o),
+        .ex_is_op_reg_o  (id_ex_is_op_reg_o),
+        .ex_is_branch_o  (id_ex_is_branch_o),
+        .ex_is_load_o    (id_ex_is_load_o),
+        .ex_is_store_o   (id_ex_is_store_o),
+        .ex_is_jal_o     (id_ex_is_jal_o),
+        .ex_is_jalr_o    (id_ex_is_jalr_o),
+        .ex_is_auipc_o   (id_ex_is_auipc_o),
+        .ex_is_lui_o     (id_ex_is_lui_o),
+        .ex_is_system_o  (id_ex_is_system_o),
+        .ex_is_rv32m_o   (id_ex_is_rv32m_o),
+        .ex_is_csr_op_o  (id_ex_is_csr_op_o),
+        .ex_is_call_jal_o(id_ex_is_call_jal_o),
+        .ex_ras_should_push_jalr_o(id_ex_ras_should_push_jalr_o),
+        .ex_ras_should_pop_jalr_o (id_ex_ras_should_pop_jalr_o),
+        .ex_ras_predicted_jalr_o  (id_ex_ras_predicted_jalr_o)
     );
 
-    (* max_fanout = 8 *)assign mem2a_is_slow_load_o = mem1_mem2_is_load_o &&
+    (* max_fanout = 8 *)assign mem2_is_slow_load_o = mem1_mem2_is_load_o &&
                                   ~mem1_mem2_load_hits_dram_o;
-    (* max_fanout = 8 *)assign mem2_is_slow_load_o  = mem2_align_is_load_o &&
-                                  ~mem2_align_load_hits_dram_o;
-
-    (* max_fanout = 8 *)assign id_is_jalr_w         = (id_inst_o[6:0] == `INST_JALR);
-    (* max_fanout = 8 *)assign id_ex_is_branch_w    = (id_ex_inst_o[6:0] == `INST_TYPE_B);
-    (* max_fanout = 8 *)assign id_ex_is_jalr_w      = (id_ex_inst_o[6:0] == `INST_JALR);
 
     // ==================================================================
     // Forwarding
@@ -511,8 +637,6 @@ module open_risc_v (
         .id_ex_base_addr_i        (id_ex_base_addr_o),
         .id_ex_rs1_addr_i         (id_ex_rs1_addr_o),
         .id_ex_rs2_addr_i         (id_ex_rs2_addr_o),
-        .id_ex_is_branch_i        (id_ex_is_branch_w),
-        .id_ex_is_jalr_i          (id_ex_is_jalr_w),
         .id_ex_use_rs1_i          (id_ex_use_rs1_o),
         .id_ex_use_rs2_i          (id_ex_use_rs2_o),
         .id_ex_use_base_addr_i    (id_ex_use_base_addr_o),
@@ -524,6 +648,7 @@ module open_risc_v (
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
         .mem1_mem2_rd_wen_i       (mem1_mem2_rd_wen_o),
         .mem1_mem2_is_load_i      (mem1_mem2_is_load_o),
+        .mem1_mem2_load_cache_hit_i(mem1_mem2_load_cache_hit_o),
         .mem2_rd_addr_i           (mem2_rd_addr_o),
         .mem2_rd_data_i           (mem2_rd_data_o),
         .mem2_rd_wen_i            (mem2_rd_wen_o),
@@ -545,20 +670,15 @@ module open_risc_v (
     Hazard_detection_unit hdu_inst (
         .id_rs1_addr_i        (id_rs1_addr_o),
         .id_rs2_addr_i        (id_rs2_addr_o),
-        .id_is_branch_i       (id_is_branch_o),
-        .id_is_jalr_i         (id_is_jalr_w),
         .id_use_rs1_i         (id_use_rs1_o),
         .id_use_rs2_i         (id_use_rs2_o),
         .ex_inst_i            (id_ex_inst_o),
         .mem1_inst_i          (ex_mem_inst_o),
-        .mem2a_inst_i         (mem1_mem2_inst_o),
-        .mem2_inst_i          (mem2_align_inst_o),
-        .mem_wb_inst_i        (mem_wb_inst_o),
-        .mem2a_is_slow_load_i (mem2a_is_slow_load_o),
+        .mem1_load_cache_hit_i(mem1_load_cache_hit),
+        .mem2_inst_i          (mem1_mem2_inst_o),
         .mem2_is_slow_load_i  (mem2_is_slow_load_o),
         .ex_busy_i            (ex_rv32m_busy_o),
         .ex_done_i            (ex_rv32m_done_o),
-        .branch_ex_stall_o    (),
         .hold_flag_o          (hdu_hold_flag_o),
         .flush_flag_o         (hdu_flush_flag_o)
     );
@@ -571,10 +691,8 @@ module open_risc_v (
         .rst                 (rst),
         .inst_i              (id_ex_inst_o),
         .inst_addr_i         (id_ex_inst_addr_o),
-        .raw_op1_i           (id_ex_op1_o),
         .fwd_op1_i           (fwd_op1_o),
         .fwd_op2_i           (fwd_op2_o),
-        .raw_cmp_op2_i       (id_ex_cmp_op2_o),
         .fwd_cmp_op2_i       (fwd_cmp_op2_o),
         .store_data_i        (fwd_store_data_o),
         .pred_taken_i        (id_ex_pred_taken_o),
@@ -583,11 +701,30 @@ module open_risc_v (
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
         .kill_i              (ctrl_kill_ex_o),
-        .raw_base_i          (id_ex_base_addr_o),
         .fwd_base_i          (fwd_base_addr_o),
         .branch_offset_i     (id_ex_branch_offset_o),
         .mem_offset_i        (id_ex_mem_offset_o),
         .jump_offset_i       (id_ex_jump_offset_o),
+        .dec_func3_i         (id_ex_func3_o),
+        .dec_func7_bit5_i    (id_ex_func7_bit5_o),
+        .dec_func7_is_r_i    (id_ex_func7_is_r_o),
+        .dec_func7_is_sub_i  (id_ex_func7_is_sub_o),
+        .dec_is_op_imm_i     (id_ex_is_op_imm_o),
+        .dec_is_op_reg_i     (id_ex_is_op_reg_o),
+        .dec_is_branch_i     (id_ex_is_branch_o),
+        .dec_is_load_i       (id_ex_is_load_o),
+        .dec_is_store_i      (id_ex_is_store_o),
+        .dec_is_jal_i        (id_ex_is_jal_o),
+        .dec_is_jalr_i       (id_ex_is_jalr_o),
+        .dec_is_auipc_i      (id_ex_is_auipc_o),
+        .dec_is_lui_i        (id_ex_is_lui_o),
+        .dec_is_system_i     (id_ex_is_system_o),
+        .dec_is_rv32m_i      (id_ex_is_rv32m_o),
+        .dec_is_csr_op_i     (id_ex_is_csr_op_o),
+        .dec_is_call_jal_i   (id_ex_is_call_jal_o),
+        .dec_ras_should_push_jalr_i(id_ex_ras_should_push_jalr_o),
+        .dec_ras_should_pop_jalr_i (id_ex_ras_should_pop_jalr_o),
+        .dec_ras_predicted_jalr_i  (id_ex_ras_predicted_jalr_o),
         .rd_addr_o           (ex_rd_addr_o),
         .rd_wen_o            (ex_rd_wen_o),
         .rd_data_o           (ex_rd_data_o),
@@ -643,6 +780,9 @@ module open_risc_v (
         .mem_rd_addr_i     (ex_rd_mem_addr_o),
         .is_load_i         (ex_is_load_o),
         .load_hits_dram_i  (ex_load_hits_dram_o),
+        .store_load_fwd_valid_i(store_load_fwd_valid_ex),
+        .store_load_fwd_wstrb_i(store_load_fwd_wstrb_ex),
+        .store_load_fwd_data_i (store_load_fwd_data_ex),
         .bp_update_en_i    (bp_update_en_o),
         .bp_update_pc_i    (bp_update_pc_o),
         .bp_update_ghr_i   (bp_update_ghr_o),
@@ -659,6 +799,9 @@ module open_risc_v (
         .mem_rd_addr_o     (ex_mem_mem_rd_addr_o),
         .is_load_o         (ex_mem_is_load_o),
         .load_hits_dram_o  (ex_mem_load_hits_dram_o),
+        .store_load_fwd_valid_o(ex_mem_store_load_fwd_valid_o),
+        .store_load_fwd_wstrb_o(ex_mem_store_load_fwd_wstrb_o),
+        .store_load_fwd_data_o (ex_mem_store_load_fwd_data_o),
         .bp_update_en_o    (ex_mem_bp_update_en_o),
         .bp_update_pc_o    (ex_mem_bp_update_pc_o),
         .bp_update_ghr_o   (ex_mem_bp_update_ghr_o),
@@ -701,11 +844,15 @@ module open_risc_v (
         .rst               (rst),
         .inst_i            (mem_inst_o),
         .rd_addr_i         (mem_out_rd_addr_o),
-        .rd_data_i         (mem_out_rd_data_o),
+        .rd_data_i         (mem1_rd_data_to_mem2),
         .rd_wen_i          (mem_out_rd_wen_o),
         .mem_rd_addr_i     (mem_out_mem_rd_addr_o),
         .is_load_i         (mem_out_is_load_o),
         .load_hits_dram_i  (ex_mem_load_hits_dram_o),
+        .load_cache_hit_i  (mem1_load_cache_hit),
+        .store_load_fwd_valid_i(ex_mem_store_load_fwd_valid_o),
+        .store_load_fwd_wstrb_i(ex_mem_store_load_fwd_wstrb_o),
+        .store_load_fwd_data_i (ex_mem_store_load_fwd_data_o),
         .bp_update_en_i    (ex_mem_bp_update_en_o),
         .bp_update_pc_i    (ex_mem_bp_update_pc_o),
         .bp_update_ghr_i   (ex_mem_bp_update_ghr_o),
@@ -719,6 +866,10 @@ module open_risc_v (
         .mem_rd_addr_o     (mem1_mem2_mem_rd_addr_o),
         .is_load_o         (mem1_mem2_is_load_o),
         .load_hits_dram_o  (mem1_mem2_load_hits_dram_o),
+        .load_cache_hit_o  (mem1_mem2_load_cache_hit_o),
+        .store_load_fwd_valid_o(mem1_mem2_store_load_fwd_valid_o),
+        .store_load_fwd_wstrb_o(mem1_mem2_store_load_fwd_wstrb_o),
+        .store_load_fwd_data_o (mem1_mem2_store_load_fwd_data_o),
         .bp_update_en_o    (mem1_mem2_bp_update_en_o),
         .bp_update_pc_o    (mem1_mem2_bp_update_pc_o),
         .bp_update_ghr_o   (mem1_mem2_bp_update_ghr_o),
@@ -730,52 +881,20 @@ module open_risc_v (
     );
 
     // ==================================================================
-    // MEM2 align
-    // ==================================================================
-    mem1_mem2 mem2_align_inst (
-        .clk               (clk),
-        .rst               (rst),
-        .inst_i            (mem1_mem2_inst_o),
-        .rd_addr_i         (mem1_mem2_rd_addr_o),
-        .rd_data_i         (mem1_mem2_rd_data_o),
-        .rd_wen_i          (mem1_mem2_rd_wen_o),
-        .mem_rd_addr_i     (mem1_mem2_mem_rd_addr_o),
-        .is_load_i         (mem1_mem2_is_load_o),
-        .load_hits_dram_i  (mem1_mem2_load_hits_dram_o),
-        .bp_update_en_i    (mem1_mem2_bp_update_en_o),
-        .bp_update_pc_i    (mem1_mem2_bp_update_pc_o),
-        .bp_update_ghr_i   (mem1_mem2_bp_update_ghr_o),
-        .bp_ras_push_en_i  (mem1_mem2_bp_ras_push_en_o),
-        .bp_ras_pop_en_i   (mem1_mem2_bp_ras_pop_en_o),
-        .bp_ras_push_addr_i(mem1_mem2_bp_ras_push_addr_o),
-        .bp_actual_taken_i (mem1_mem2_bp_actual_taken_o),
-        .rd_addr_o         (mem2_align_rd_addr_o),
-        .rd_data_o         (mem2_align_rd_data_o),
-        .rd_wen_o          (mem2_align_rd_wen_o),
-        .mem_rd_addr_o     (mem2_align_mem_rd_addr_o),
-        .is_load_o         (mem2_align_is_load_o),
-        .load_hits_dram_o  (mem2_align_load_hits_dram_o),
-        .bp_update_en_o    (mem2_align_bp_update_en_o),
-        .bp_update_pc_o    (mem2_align_bp_update_pc_o),
-        .bp_update_ghr_o   (mem2_align_bp_update_ghr_o),
-        .bp_ras_push_en_o  (mem2_align_bp_ras_push_en_o),
-        .bp_ras_pop_en_o   (mem2_align_bp_ras_pop_en_o),
-        .bp_ras_push_addr_o(mem2_align_bp_ras_push_addr_o),
-        .bp_actual_taken_o (mem2_align_bp_actual_taken_o),
-        .inst_o            (mem2_align_inst_o)
-    );
-
-    // ==================================================================
     // MEM2
     // ==================================================================
     mem2 mem2_inst (
-        .inst_i        (mem2_align_inst_o),
-        .rd_addr_i     (mem2_align_rd_addr_o),
-        .rd_data_i     (mem2_align_rd_data_o),
-        .rd_wen_i      (mem2_align_rd_wen_o),
-        .mem_rd_addr_i (mem2_align_mem_rd_addr_o),
-        .is_load_i     (mem2_align_is_load_o),
+        .inst_i        (mem1_mem2_inst_o),
+        .rd_addr_i     (mem1_mem2_rd_addr_o),
+        .rd_data_i     (mem1_mem2_rd_data_o),
+        .rd_wen_i      (mem1_mem2_rd_wen_o),
+        .mem_rd_addr_i (mem1_mem2_mem_rd_addr_o),
+        .is_load_i     (mem1_mem2_is_load_o),
+        .load_cache_hit_i(mem1_mem2_load_cache_hit_o),
         .mem_rd_data_i (ram_data_i),
+        .store_load_fwd_valid_i(mem1_mem2_store_load_fwd_valid_o),
+        .store_load_fwd_wstrb_i(mem1_mem2_store_load_fwd_wstrb_o),
+        .store_load_fwd_data_i (mem1_mem2_store_load_fwd_data_o),
         .rd_addr_o     (mem2_rd_addr_o),
         .rd_data_o     (mem2_rd_data_o),
         .rd_wen_o      (mem2_rd_wen_o),
@@ -792,15 +911,15 @@ module open_risc_v (
         .rd_addr_i         (mem2_rd_addr_o),
         .rd_data_i         (mem2_rd_data_o),
         .rd_wen_i          (mem2_rd_wen_o),
-        .mem_rd_addr_i     (mem2_align_mem_rd_addr_o),
+        .mem_rd_addr_i     (mem1_mem2_mem_rd_addr_o),
         .is_slow_load_i    (mem2_is_slow_load_o),
-        .bp_update_en_i    (mem2_align_bp_update_en_o),
-        .bp_update_pc_i    (mem2_align_bp_update_pc_o),
-        .bp_update_ghr_i   (mem2_align_bp_update_ghr_o),
-        .bp_ras_push_en_i  (mem2_align_bp_ras_push_en_o),
-        .bp_ras_pop_en_i   (mem2_align_bp_ras_pop_en_o),
-        .bp_ras_push_addr_i(mem2_align_bp_ras_push_addr_o),
-        .bp_actual_taken_i (mem2_align_bp_actual_taken_o),
+        .bp_update_en_i    (mem1_mem2_bp_update_en_o),
+        .bp_update_pc_i    (mem1_mem2_bp_update_pc_o),
+        .bp_update_ghr_i   (mem1_mem2_bp_update_ghr_o),
+        .bp_ras_push_en_i  (mem1_mem2_bp_ras_push_en_o),
+        .bp_ras_pop_en_i   (mem1_mem2_bp_ras_pop_en_o),
+        .bp_ras_push_addr_i(mem1_mem2_bp_ras_push_addr_o),
+        .bp_actual_taken_i (mem1_mem2_bp_actual_taken_o),
         .rd_addr_o         (mem_wb_rd_addr_o),
         .rd_data_o         (mem_wb_rd_data_o),
         .rd_wen_o          (mem_wb_rd_wen_o),

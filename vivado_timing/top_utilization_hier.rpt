@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2023 Advanced Micro Devices, Inc. All Rights Reserved.
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2023.2 (win64) Build 4029153 Fri Oct 13 20:14:34 MDT 2023
-| Date         : Tue Jun  2 20:25:30 2026
+| Date         : Wed Jun 24 19:55:08 2026
 | Host         : LAPTOP-5UF1FH4A running 64-bit major release  (build 9200)
 | Command      : report_utilization -hierarchical -file C:/Users/hp/Downloads/digital_twin/digital_twin.srcs/sources_1/vivado_timing/top_utilization_hier.rpt
 | Design       : top
@@ -22,73 +22,72 @@ Table of Contents
 +----------------------------------------------------+--------------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
 |                      Instance                      |                         Module                         | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | DSP Blocks |
 +----------------------------------------------------+--------------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
-| top                                                |                                                  (top) |       4723 |       4609 |     114 |    0 | 3092 |     68 |      0 |          4 |
+| top                                                |                                                  (top) |       5078 |       4964 |     114 |    0 | 3030 |     68 |      0 |          4 |
 |   (top)                                            |                                                  (top) |          0 |          0 |       0 |    0 |    0 |      0 |      0 |          0 |
 |   pll_inst                                         |                                                    pll |          0 |          0 |       0 |    0 |    0 |      0 |      0 |          0 |
 |     inst                                           |                                            pll_clk_wiz |          0 |          0 |       0 |    0 |    0 |      0 |      0 |          0 |
-|   student_top_inst                                 |                                            student_top |       4515 |       4401 |     114 |    0 | 2788 |     68 |      0 |          4 |
+|   student_top_inst                                 |                                            student_top |       4868 |       4754 |     114 |    0 | 2726 |     68 |      0 |          4 |
 |     (student_top_inst)                             |                                            student_top |          0 |          0 |       0 |    0 |    0 |      0 |      0 |          0 |
-|     Core_cpu                                       |                                                  myCPU |       4079 |       3965 |     114 |    0 | 2158 |      0 |      0 |          4 |
-|       (Core_cpu)                                   |                                                  myCPU |          2 |          2 |       0 |    0 |    0 |      0 |      0 |          0 |
-|       cpu_core                                     |                                            open_risc_v |       4077 |       3963 |     114 |    0 | 2158 |      0 |      0 |          4 |
-|         (cpu_core)                                 |                                            open_risc_v |          3 |          3 |       0 |    0 |   52 |      0 |      0 |          0 |
-|         branch_predictor_inst                      |                                       branch_predictor |        164 |         94 |      70 |    0 |   30 |      0 |      0 |          0 |
-|         ctrl_inst                                  |                                                   ctrl |          3 |          3 |       0 |    0 |    5 |      0 |      0 |          0 |
-|         ex_inst                                    |                                                     ex |        926 |        926 |       0 |    0 |  559 |      0 |      0 |          4 |
-|           (ex_inst)                                |                                                     ex |         24 |         24 |       0 |    0 |   21 |      0 |      0 |          0 |
-|           csr_inst                                 |                                                    csr |         72 |         72 |       0 |    0 |  160 |      0 |      0 |          0 |
-|           rv32m_iter_inst                          |                                             rv32m_iter |        831 |        831 |       0 |    0 |  378 |      0 |      0 |          4 |
-|         ex_mem_inst                                |                                                ex_mem1 |        474 |        474 |       0 |    0 |  175 |      0 |      0 |          0 |
-|           dff_bp_actual_taken                      |                             dff_set__parameterized1_38 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_bp_update_en                         |                             dff_set__parameterized1_42 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
+|     Core_cpu                                       |                                                  myCPU |       4444 |       4330 |     114 |    0 | 2093 |      0 |      0 |          4 |
+|       cpu_core                                     |                                            open_risc_v |       4444 |       4330 |     114 |    0 | 2093 |      0 |      0 |          4 |
+|         (cpu_core)                                 |                                            open_risc_v |          3 |          3 |       0 |    0 |   48 |      0 |      0 |          0 |
+|         branch_predictor_inst                      |                                       branch_predictor |        176 |        106 |      70 |    0 |   30 |      0 |      0 |          0 |
+|         ctrl_inst                                  |                                                   ctrl |          1 |          1 |       0 |    0 |    4 |      0 |      0 |          0 |
+|         ex_inst                                    |                                                     ex |       1042 |       1042 |       0 |    0 |  579 |      0 |      0 |          4 |
+|           (ex_inst)                                |                                                     ex |         26 |         26 |       0 |    0 |   21 |      0 |      0 |          0 |
+|           csr_inst                                 |                                                    csr |         56 |         56 |       0 |    0 |  160 |      0 |      0 |          0 |
+|           rv32m_iter_inst                          |                                             rv32m_iter |        962 |        962 |       0 |    0 |  398 |      0 |      0 |          4 |
+|         ex_mem_inst                                |                                                ex_mem1 |         61 |         61 |       0 |    0 |  175 |      0 |      0 |          0 |
+|           dff_bp_actual_taken                      |                             dff_set__parameterized1_38 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_bp_ras_pop_en                        |                             dff_set__parameterized1_39 |          1 |          1 |       0 |    0 |    0 |      0 |      0 |          0 |
+|           dff_bp_update_en                         |                             dff_set__parameterized1_42 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_bp_update_ghr                        |                             dff_set__parameterized3_43 |          1 |          1 |       0 |    0 |    9 |      0 |      0 |          0 |
 |           dff_bp_update_pc                         |                             dff_set__parameterized0_44 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_inst                                 |                             dff_set__parameterized0_45 |          9 |          9 |       0 |    0 |   15 |      0 |      0 |          0 |
-|           dff_is_load                              |                             dff_set__parameterized1_46 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_inst                                 |                             dff_set__parameterized0_45 |          8 |          8 |       0 |    0 |   15 |      0 |      0 |          0 |
+|           dff_is_load                              |                             dff_set__parameterized1_46 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_load_hits_dram                       |                             dff_set__parameterized1_47 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_mem_rd_addr                          |                             dff_set__parameterized0_48 |         12 |         12 |       0 |    0 |   32 |      0 |      0 |          0 |
 |           dff_mem_wd_addr                          |                             dff_set__parameterized0_49 |         11 |         11 |       0 |    0 |   32 |      0 |      0 |          0 |
-|           dff_mem_wd_data                          |                             dff_set__parameterized0_50 |         22 |         22 |       0 |    0 |   32 |      0 |      0 |          0 |
+|           dff_mem_wd_data                          |                             dff_set__parameterized0_50 |         23 |         23 |       0 |    0 |   32 |      0 |      0 |          0 |
 |           dff_mem_wd_reg                           |                                dff_set__parameterized2 |          1 |          1 |       0 |    0 |    4 |      0 |      0 |          0 |
-|           dff_rd_addr                              |                                             dff_set_51 |        134 |        134 |       0 |    0 |    5 |      0 |      0 |          0 |
-|           dff_rd_data                              |                             dff_set__parameterized0_52 |        280 |        280 |       0 |    0 |   32 |      0 |      0 |          0 |
-|           dff_rd_wen                               |                             dff_set__parameterized1_53 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|         id_ex_inst                                 |                                                  id_ex |       1498 |       1498 |       0 |    0 |  829 |      0 |      0 |          0 |
-|         if_id_inst                                 |                                                  if_id |        875 |        875 |       0 |    0 |  215 |      0 |      0 |          0 |
-|         mem1_mem2_inst                             |                                              mem1_mem2 |         14 |         14 |       0 |    0 |   82 |      0 |      0 |          0 |
-|           dff_bp_actual_taken                      |                             dff_set__parameterized1_24 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_bp_update_en                         |                             dff_set__parameterized1_28 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_bp_update_ghr                        |                             dff_set__parameterized3_29 |          1 |          1 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_bp_update_pc                         |                             dff_set__parameterized0_30 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_inst                                 |                             dff_set__parameterized0_31 |          7 |          7 |       0 |    0 |   19 |      0 |      0 |          0 |
-|           dff_is_load                              |                             dff_set__parameterized1_32 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_rd_addr                              |                                             dff_set_51 |          0 |          0 |       0 |    0 |    5 |      0 |      0 |          0 |
+|           dff_rd_data                              |                             dff_set__parameterized0_52 |          0 |          0 |       0 |    0 |   32 |      0 |      0 |          0 |
+|           dff_rd_wen                               |                             dff_set__parameterized1_53 |          0 |          0 |       0 |    0 |    1 |      0 |      0 |          0 |
+|         id_ex_inst                                 |                                                  id_ex |        962 |        962 |       0 |    0 |  719 |      0 |      0 |          0 |
+|         if_id_inst                                 |                                                  if_id |        838 |        838 |       0 |    0 |  216 |      0 |      0 |          0 |
+|         mem1_mem2_inst                             |                                              mem1_mem2 |       1195 |       1195 |       0 |    0 |  116 |      0 |      0 |          0 |
+|           dff_bp_actual_taken                      |                             dff_set__parameterized1_24 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_bp_update_en                         |                             dff_set__parameterized1_28 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_bp_update_ghr                        |                             dff_set__parameterized3_29 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
+|           dff_bp_update_pc                         |                             dff_set__parameterized0_30 |          1 |          1 |       0 |    0 |    9 |      0 |      0 |          0 |
+|           dff_inst                                 |                             dff_set__parameterized0_31 |         11 |         11 |       0 |    0 |   16 |      0 |      0 |          0 |
+|           dff_is_load                              |                             dff_set__parameterized1_32 |          2 |          2 |       0 |    0 |    2 |      0 |      0 |          0 |
 |           dff_load_hits_dram                       |                             dff_set__parameterized1_33 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_mem_rd_addr                          |                             dff_set__parameterized0_34 |          0 |          0 |       0 |    0 |    3 |      0 |      0 |          0 |
-|           dff_rd_addr                              |                                             dff_set_35 |          0 |          0 |       0 |    0 |    5 |      0 |      0 |          0 |
+|           dff_rd_addr                              |                                             dff_set_35 |       1175 |       1175 |       0 |    0 |   41 |      0 |      0 |          0 |
 |           dff_rd_data                              |                             dff_set__parameterized0_36 |          1 |          1 |       0 |    0 |   32 |      0 |      0 |          0 |
 |           dff_rd_wen                               |                             dff_set__parameterized1_37 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|         mem2_align_inst                            |                                            mem1_mem2_0 |         59 |         59 |       0 |    0 |  103 |      0 |      0 |          0 |
-|           dff_bp_actual_taken                      |                             dff_set__parameterized1_10 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_bp_ras_pop_en                        |                             dff_set__parameterized1_11 |          1 |          1 |       0 |    0 |    0 |      0 |      0 |          0 |
+|         mem2_align_inst                            |                                            mem1_mem2_0 |         79 |         79 |       0 |    0 |  103 |      0 |      0 |          0 |
+|           dff_bp_actual_taken                      |                             dff_set__parameterized1_10 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_bp_update_en                         |                             dff_set__parameterized1_14 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_bp_update_ghr                        |                             dff_set__parameterized3_15 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
 |           dff_bp_update_pc                         |                             dff_set__parameterized0_16 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_inst                                 |                             dff_set__parameterized0_17 |         51 |         51 |       0 |    0 |   25 |      0 |      0 |          0 |
-|           dff_is_load                              |                             dff_set__parameterized1_18 |          1 |          1 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_load_hits_dram                       |                             dff_set__parameterized1_19 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_mem_rd_addr                          |                             dff_set__parameterized0_20 |          0 |          0 |       0 |    0 |   10 |      0 |      0 |          0 |
-|           dff_rd_addr                              |                                             dff_set_21 |          0 |          0 |       0 |    0 |    5 |      0 |      0 |          0 |
-|           dff_rd_data                              |                             dff_set__parameterized0_22 |          0 |          0 |       0 |    0 |   32 |      0 |      0 |          0 |
-|           dff_rd_wen                               |                             dff_set__parameterized1_23 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
-|         mem_wb_inst                                |                                                mem2_wb |         62 |         62 |       0 |    0 |   76 |      0 |      0 |          0 |
+|           dff_inst                                 |                             dff_set__parameterized0_17 |         65 |         65 |       0 |    0 |   21 |      0 |      0 |          0 |
+|           dff_is_load                              |                             dff_set__parameterized1_18 |          1 |          1 |       0 |    0 |   10 |      0 |      0 |          0 |
+|           dff_load_hits_dram                       |                             dff_set__parameterized1_19 |          3 |          3 |       0 |    0 |    2 |      0 |      0 |          0 |
+|           dff_mem_rd_addr                          |                             dff_set__parameterized0_20 |          1 |          1 |       0 |    0 |   10 |      0 |      0 |          0 |
+|           dff_rd_addr                              |                                             dff_set_21 |          3 |          3 |       0 |    0 |    7 |      0 |      0 |          0 |
+|           dff_rd_data                              |                             dff_set__parameterized0_22 |          1 |          1 |       0 |    0 |   32 |      0 |      0 |          0 |
+|           dff_rd_wen                               |                             dff_set__parameterized1_23 |          3 |          3 |       0 |    0 |    1 |      0 |      0 |          0 |
+|         mem_wb_inst                                |                                                mem2_wb |         61 |         61 |       0 |    0 |   71 |      0 |      0 |          0 |
 |           dff_bp_actual_taken                      |                                dff_set__parameterized1 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
-|           dff_bp_update_en                         |                              dff_set__parameterized1_3 |          2 |          2 |       0 |    0 |    1 |      0 |      0 |          0 |
+|           dff_bp_update_en                         |                              dff_set__parameterized1_3 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_bp_update_ghr                        |                                dff_set__parameterized3 |          3 |          3 |       0 |    0 |    9 |      0 |      0 |          0 |
 |           dff_bp_update_pc                         |                              dff_set__parameterized0_4 |          0 |          0 |       0 |    0 |    9 |      0 |      0 |          0 |
-|           dff_inst                                 |                              dff_set__parameterized0_5 |         48 |         48 |       0 |    0 |   15 |      0 |      0 |          0 |
+|           dff_inst                                 |                              dff_set__parameterized0_5 |         45 |         45 |       0 |    0 |   10 |      0 |      0 |          0 |
 |           dff_is_slow_load                         |                              dff_set__parameterized1_6 |          0 |          0 |       0 |    0 |    1 |      0 |      0 |          0 |
 |           dff_mem_rd_addr                          |                              dff_set__parameterized0_7 |          3 |          3 |       0 |    0 |    2 |      0 |      0 |          0 |
-|           dff_rd_addr                              |                                                dff_set |          3 |          3 |       0 |    0 |    5 |      0 |      0 |          0 |
+|           dff_rd_addr                              |                                                dff_set |          7 |          7 |       0 |    0 |    5 |      0 |      0 |          0 |
 |           dff_rd_data                              |                              dff_set__parameterized0_8 |          1 |          1 |       0 |    0 |   32 |      0 |      0 |          0 |
 |           dff_rd_wen                               |                              dff_set__parameterized1_9 |          1 |          1 |       0 |    0 |    1 |      0 |      0 |          0 |
 |         pc_reg_inst                                |                                                 pc_reg |          4 |          4 |       0 |    0 |   32 |      0 |      0 |          0 |
@@ -106,11 +105,11 @@ Table of Contents
 |                 prim_init.ram                      | Mem_IROM_blk_mem_gen_prim_wrapper_init__parameterized1 |          0 |          0 |       0 |    0 |    0 |      1 |      0 |          0 |
 |               ramloop[3].ram.r                     |        Mem_IROM_blk_mem_gen_prim_width__parameterized2 |          0 |          0 |       0 |    0 |    0 |      1 |      0 |          0 |
 |                 prim_init.ram                      | Mem_IROM_blk_mem_gen_prim_wrapper_init__parameterized2 |          0 |          0 |       0 |    0 |    0 |      1 |      0 |          0 |
-|     bridge_inst                                    |                                           perip_bridge |        437 |        437 |       0 |    0 |  630 |     64 |      0 |          0 |
-|       (bridge_inst)                                |                                           perip_bridge |         74 |         74 |       0 |    0 |  443 |      0 |      0 |          0 |
-|       counter_inst                                 |                                                counter |        109 |        109 |       0 |    0 |  146 |      0 |      0 |          0 |
-|       dram_driver_inst                             |                                            dram_driver |        218 |        218 |       0 |    0 |   36 |     64 |      0 |          0 |
-|         (dram_driver_inst)                         |                                            dram_driver |         17 |         17 |       0 |    0 |   32 |      0 |      0 |          0 |
+|     bridge_inst                                    |                                           perip_bridge |        425 |        425 |       0 |    0 |  633 |     64 |      0 |          0 |
+|       (bridge_inst)                                |                                           perip_bridge |         72 |         72 |       0 |    0 |  443 |      0 |      0 |          0 |
+|       counter_inst                                 |                                                counter |         94 |         94 |       0 |    0 |  146 |      0 |      0 |          0 |
+|       dram_driver_inst                             |                                            dram_driver |        220 |        220 |       0 |    0 |   39 |     64 |      0 |          0 |
+|         (dram_driver_inst)                         |                                            dram_driver |         19 |         19 |       0 |    0 |   35 |      0 |      0 |          0 |
 |         Mem_DRAM                                   |                                                Mem_RAM |        201 |        201 |       0 |    0 |    4 |     64 |      0 |          0 |
 |           U0                                       |                             Mem_RAM_blk_mem_gen_v8_4_7 |        201 |        201 |       0 |    0 |    4 |     64 |      0 |          0 |
 |             inst_blk_mem_gen                       |                       Mem_RAM_blk_mem_gen_v8_4_7_synth |        201 |        201 |       0 |    0 |    4 |     64 |      0 |          0 |
@@ -245,8 +244,8 @@ Table of Contents
 |                     prim_init.ram                  |  Mem_RAM_blk_mem_gen_prim_wrapper_init__parameterized7 |          1 |          1 |       0 |    0 |    0 |      1 |      0 |          0 |
 |                   ramloop[9].ram.r                 |         Mem_RAM_blk_mem_gen_prim_width__parameterized8 |          1 |          1 |       0 |    0 |    0 |      1 |      0 |          0 |
 |                     prim_init.ram                  |  Mem_RAM_blk_mem_gen_prim_wrapper_init__parameterized8 |          1 |          1 |       0 |    0 |    0 |      1 |      0 |          0 |
-|       seg_driver                                   |                                            display_seg |         40 |         40 |       0 |    0 |    5 |      0 |      0 |          0 |
-|   twin_controller_inst                             |                                        twin_controller |         60 |         60 |       0 |    0 |  222 |      0 |      0 |          0 |
+|       seg_driver                                   |                                            display_seg |         41 |         41 |       0 |    0 |    5 |      0 |      0 |          0 |
+|   twin_controller_inst                             |                                        twin_controller |         59 |         59 |       0 |    0 |  222 |      0 |      0 |          0 |
 |   uart_inst                                        |                                                   uart |        151 |        151 |       0 |    0 |   82 |      0 |      0 |          0 |
 +----------------------------------------------------+--------------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
 * Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
