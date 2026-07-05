@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module pc_reg (
     input  wire        clk,                
     input  wire        rst,                

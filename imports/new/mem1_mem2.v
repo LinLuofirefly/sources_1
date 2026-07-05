@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 `include "defines.v"
 
 module mem1_mem2 (
@@ -10,6 +11,10 @@ module mem1_mem2 (
     input  wire [31:0] mem_rd_addr_i,
     input  wire        is_load_i,
     input  wire        load_hits_dram_i,
+    input  wire        load_cache_hit_i,
+    input  wire        store_load_fwd_valid_i,
+    input  wire [3:0]  store_load_fwd_wstrb_i,
+    input  wire [31:0] store_load_fwd_data_i,
     input  wire        bp_update_en_i,
     input  wire [31:0] bp_update_pc_i,
     input  wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_i,
@@ -24,6 +29,10 @@ module mem1_mem2 (
     (* max_fanout = 4*)output wire [31:0] mem_rd_addr_o,
     (* max_fanout = 4*)output wire        is_load_o,
     (* max_fanout = 4*)output wire        load_hits_dram_o,
+    (* max_fanout = 4*)output wire        load_cache_hit_o,
+    (* max_fanout = 4*)output wire        store_load_fwd_valid_o,
+    (* max_fanout = 4*)output wire [3:0]  store_load_fwd_wstrb_o,
+    (* max_fanout = 4*)output wire [31:0] store_load_fwd_data_o,
     (* max_fanout = 4*)output wire        bp_update_en_o,
     (* max_fanout = 4*)output wire [31:0] bp_update_pc_o,
     (* max_fanout = 4*)output wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
@@ -40,6 +49,10 @@ module mem1_mem2 (
     dff_set #(32) dff_mem_rd_addr     (clk, rst, 1'b0, 1'b0, 32'b0,     mem_rd_addr_i,     mem_rd_addr_o);
     dff_set #(1)  dff_is_load         (clk, rst, 1'b0, 1'b0, 1'b0,      is_load_i,         is_load_o);
     dff_set #(1)  dff_load_hits_dram  (clk, rst, 1'b0, 1'b0, 1'b0,      load_hits_dram_i,  load_hits_dram_o);
+    dff_set #(1)  dff_load_cache_hit  (clk, rst, 1'b0, 1'b0, 1'b0,      load_cache_hit_i,  load_cache_hit_o);
+    dff_set #(1)  dff_store_load_fwd_valid(clk, rst, 1'b0, 1'b0, 1'b0,   store_load_fwd_valid_i, store_load_fwd_valid_o);
+    dff_set #(4)  dff_store_load_fwd_wstrb(clk, rst, 1'b0, 1'b0, 4'b0,   store_load_fwd_wstrb_i, store_load_fwd_wstrb_o);
+    dff_set #(32) dff_store_load_fwd_data (clk, rst, 1'b0, 1'b0, 32'b0,  store_load_fwd_data_i, store_load_fwd_data_o);
     dff_set #(1)  dff_bp_update_en    (clk, rst, 1'b0, 1'b0, 1'b0,      bp_update_en_i,    bp_update_en_o);
     dff_set #(32) dff_bp_update_pc    (clk, rst, 1'b0, 1'b0, 32'b0,     bp_update_pc_i,    bp_update_pc_o);
     dff_set #(`BP_GHR_WIDTH) dff_bp_update_ghr(clk, rst, 1'b0, 1'b0, {`BP_GHR_WIDTH{1'b0}}, bp_update_ghr_i, bp_update_ghr_o);

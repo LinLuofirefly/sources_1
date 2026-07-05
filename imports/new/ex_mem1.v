@@ -1,5 +1,5 @@
+`timescale 1ns / 1ps
 `include "defines.v"
-
 module ex_mem1 (
     input  wire        clk,
     input  wire        rst,
@@ -13,6 +13,9 @@ module ex_mem1 (
     input  wire [31:0] mem_wd_data_i,
     input  wire        is_load_i,
     input  wire        load_hits_dram_i,
+    input  wire        store_load_fwd_valid_i,
+    input  wire [3:0]  store_load_fwd_wstrb_i,
+    input  wire [31:0] store_load_fwd_data_i,
     input  wire        bp_update_en_i,
     input  wire [31:0] bp_update_pc_i,
     input  wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_i,
@@ -30,6 +33,9 @@ module ex_mem1 (
     output wire [31:0] mem_wd_data_o,
     output wire        is_load_o,
     output wire        load_hits_dram_o,
+    output wire        store_load_fwd_valid_o,
+    output wire [3:0]  store_load_fwd_wstrb_o,
+    output wire [31:0] store_load_fwd_data_o,
     output wire        bp_update_en_o,
     output wire [31:0] bp_update_pc_o,
     output wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
@@ -47,6 +53,9 @@ module ex_mem1 (
     dff_set #(32) dff_mem_wd_data     (clk, rst, 1'b0, 1'b0, 32'b0,     mem_wd_data_i,     mem_wd_data_o);
     dff_set #(1)  dff_is_load         (clk, rst, 1'b0, 1'b0, 1'b0,      is_load_i,         is_load_o);
     dff_set #(1)  dff_load_hits_dram  (clk, rst, 1'b0, 1'b0, 1'b0,      load_hits_dram_i,  load_hits_dram_o);
+    dff_set #(1)  dff_store_load_fwd_valid(clk, rst, 1'b0, 1'b0, 1'b0,   store_load_fwd_valid_i, store_load_fwd_valid_o);
+    dff_set #(4)  dff_store_load_fwd_wstrb(clk, rst, 1'b0, 1'b0, 4'b0,   store_load_fwd_wstrb_i, store_load_fwd_wstrb_o);
+    dff_set #(32) dff_store_load_fwd_data (clk, rst, 1'b0, 1'b0, 32'b0,  store_load_fwd_data_i, store_load_fwd_data_o);
     dff_set #(32) dff_inst            (clk, rst, 1'b0, 1'b0, `INST_NOP, inst_i,            inst_o);
     dff_set #(32) dff_mem_rd_addr     (clk, rst, 1'b0, 1'b0, 32'b0,     mem_rd_addr_i,     mem_rd_addr_o);
     dff_set #(1)  dff_bp_update_en    (clk, rst, 1'b0, 1'b0, 1'b0,      bp_update_en_i,    bp_update_en_o);

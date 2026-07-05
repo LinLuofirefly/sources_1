@@ -1,8 +1,13 @@
+`timescale 1ns / 1ps
 `include "defines.v"
 
 module branch_predictor #(
     parameter BHT_ADDR_WIDTH = `BP_GHR_WIDTH,
     parameter BHT_SIZE = (1 << BHT_ADDR_WIDTH),
+    parameter LOOP_ADDR_WIDTH = 4,
+    parameter LOOP_COUNT_WIDTH = 10,
+    parameter LOOP_SIZE = (1 << LOOP_ADDR_WIDTH),
+    parameter ENABLE_LOOP_PRED = 1'b0,
     parameter RAS_DEPTH = 32,
     parameter RAS_PTR_WIDTH = 5,
     parameter ENABLE_JALR_RAS_PRED = 1'b1
@@ -31,12 +36,20 @@ module branch_predictor #(
     localparam [1:0] WEAKLY_NOT_TAKEN   = 2'b01;
     localparam [1:0] WEAKLY_TAKEN       = 2'b10;
     localparam [1:0] STRONGLY_TAKEN     = 2'b11;
+    localparam [1:0] LOOP_CONF_MAX      = 2'b11;
+    localparam [LOOP_COUNT_WIDTH-1:0] LOOP_COUNT_MAX = {LOOP_COUNT_WIDTH{1'b1}};
 
     localparam [RAS_PTR_WIDTH-1:0] RAS_LAST_PTR    = {RAS_PTR_WIDTH{1'b1}};
     localparam [RAS_PTR_WIDTH:0]   RAS_DEPTH_COUNT = {1'b1, {RAS_PTR_WIDTH{1'b0}}};
 
    (* ram_style = "distributed" *) reg [1:0] bht [0:BHT_SIZE-1];
    (* ram_style = "distributed" *) reg       bht_valid [0:BHT_SIZE-1];
+   (* ram_style = "distributed" *) reg       loop_valid [0:LOOP_SIZE-1];
+   (* ram_style = "distributed" *) reg [31:0] loop_tag [0:LOOP_SIZE-1];
+   (* ram_style = "distributed" *) reg       loop_dir [0:LOOP_SIZE-1];
+   (* ram_style = "distributed" *) reg [1:0] loop_conf [0:LOOP_SIZE-1];
+   (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_iter_count [0:LOOP_SIZE-1];
+   (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_trip_count [0:LOOP_SIZE-1];
    (* max_fanout = 8 *)reg [BHT_ADDR_WIDTH-1:0] ghr_r;
    (* max_fanout = 8 *)reg [31:0] ras [0:RAS_DEPTH-1];
    (* max_fanout = 8 *)reg [RAS_PTR_WIDTH-1:0] ras_sp_r;
@@ -44,15 +57,31 @@ module branch_predictor #(
    (* max_fanout = 8 *)reg [RAS_PTR_WIDTH-1:0] ras_sp_next_r;
    (* max_fanout = 8 *)reg [RAS_PTR_WIDTH:0] ras_count_next_r;
 
+   function [BHT_ADDR_WIDTH-1:0] pc_hash;
+        input [31:0] pc;
+        begin
+            pc_hash = pc[BHT_ADDR_WIDTH+1:2] ^ pc[(2*BHT_ADDR_WIDTH)+1:BHT_ADDR_WIDTH+2];
+        end
+   endfunction
+
+   function [LOOP_ADDR_WIDTH-1:0] loop_hash;
+        input [31:0] pc;
+        begin
+            loop_hash = pc[LOOP_ADDR_WIDTH+1:2] ^ pc[(2*LOOP_ADDR_WIDTH)+1:LOOP_ADDR_WIDTH+2];
+        end
+   endfunction
+
    (* max_fanout = 8 *)wire [6:0] opcode = if_inst_i[6:0];
    (* max_fanout = 8 *)wire [2:0] funct3 = if_inst_i[14:12];
    (* max_fanout = 8 *)wire [4:0] rd     = if_inst_i[11:7];
    (* max_fanout = 8 *)wire [4:0] rs1    = if_inst_i[19:15];
 
-   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] pred_pc_idx   = if_pc_i[BHT_ADDR_WIDTH+1:2];
-   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] update_pc_idx = update_pc_i[BHT_ADDR_WIDTH+1:2];
+   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] pred_pc_idx   = pc_hash(if_pc_i);
+   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] update_pc_idx = pc_hash(update_pc_i);
    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] pred_idx      = pred_pc_idx ^ ghr_r;
    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] update_idx    = update_pc_idx ^ update_ghr_i;
+   (* max_fanout = 8 *)wire [LOOP_ADDR_WIDTH-1:0] loop_pred_idx = loop_hash(if_pc_i);
+   (* max_fanout = 8 *)wire [LOOP_ADDR_WIDTH-1:0] loop_update_idx = loop_hash(update_pc_i);
 
    (* max_fanout = 8 *)wire [31:0] b_imm =
         {{20{if_inst_i[31]}}, if_inst_i[7], if_inst_i[30:25], if_inst_i[11:8], 1'b0};
@@ -73,10 +102,25 @@ module branch_predictor #(
     (* max_fanout = 8 *)wire ras_pred_valid =
         ENABLE_JALR_RAS_PRED && ras_pred_pop && ras_nonempty;
 
-    (* max_fanout = 8 *)wire branch_pred_taken_w  = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
+    (* max_fanout = 8 *)wire loop_pred_hit =
+        ENABLE_LOOP_PRED &&
+        btfnt_taken &&
+        loop_valid[loop_pred_idx] &&
+        (loop_tag[loop_pred_idx] == if_pc_i) &&
+        (loop_conf[loop_pred_idx] == LOOP_CONF_MAX);
+    (* max_fanout = 8 *)wire loop_pred_exit =
+        (loop_trip_count[loop_pred_idx] != {LOOP_COUNT_WIDTH{1'b0}}) &&
+        (loop_iter_count[loop_pred_idx] == loop_trip_count[loop_pred_idx]);
+    (* max_fanout = 8 *)wire loop_pred_taken_w =
+        loop_pred_exit ? ~loop_dir[loop_pred_idx] : loop_dir[loop_pred_idx];
+
+    (* max_fanout = 8 *)wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
+    (* max_fanout = 8 *)wire branch_pred_taken_w  = loop_pred_hit ? loop_pred_taken_w : branch_bht_pred_taken_w;
     (* max_fanout = 8 *)wire [31:0] branch_pred_target_w = if_pc_i + b_imm;
     (* max_fanout = 8 *)wire [31:0] jal_pred_target_w    = if_pc_i + j_imm;
     (* max_fanout = 8 *)wire [31:0] jalr_pred_target_w   = ras[ras_top_idx];
+    (* max_fanout = 8 *)wire loop_update_hit =
+        loop_valid[loop_update_idx] && (loop_tag[loop_update_idx] == update_pc_i);
 
     integer i;
 
@@ -86,6 +130,14 @@ module branch_predictor #(
         for (i = 0; i < BHT_SIZE; i = i + 1) begin
             bht[i] = WEAKLY_NOT_TAKEN;
             bht_valid[i] = 1'b0;
+        end
+        for (i = 0; i < LOOP_SIZE; i = i + 1) begin
+            loop_valid[i] = 1'b0;
+            loop_tag[i] = 32'b0;
+            loop_dir[i] = 1'b0;
+            loop_conf[i] = 2'b00;
+            loop_iter_count[i] = {LOOP_COUNT_WIDTH{1'b0}};
+            loop_trip_count[i] = {LOOP_COUNT_WIDTH{1'b0}};
         end
     end
 
@@ -106,6 +158,34 @@ module branch_predictor #(
                 endcase
 
                 ghr_r <= {ghr_r[BHT_ADDR_WIDTH-2:0], actual_taken_i};
+
+                if (!loop_update_hit) begin
+                    loop_valid[loop_update_idx] <= 1'b1;
+                    loop_tag[loop_update_idx] <= update_pc_i;
+                    loop_dir[loop_update_idx] <= actual_taken_i;
+                    loop_conf[loop_update_idx] <= 2'b00;
+                    loop_iter_count[loop_update_idx] <= {{(LOOP_COUNT_WIDTH-1){1'b0}}, 1'b1};
+                    loop_trip_count[loop_update_idx] <= {LOOP_COUNT_WIDTH{1'b0}};
+                end else if (actual_taken_i == loop_dir[loop_update_idx]) begin
+                    if (loop_iter_count[loop_update_idx] != LOOP_COUNT_MAX) begin
+                        loop_iter_count[loop_update_idx] <= loop_iter_count[loop_update_idx] + 1'b1;
+                    end
+                end else begin
+                    if (loop_iter_count[loop_update_idx] != {LOOP_COUNT_WIDTH{1'b0}}) begin
+                        if ((loop_trip_count[loop_update_idx] == loop_iter_count[loop_update_idx]) &&
+                            (loop_trip_count[loop_update_idx] != {LOOP_COUNT_WIDTH{1'b0}})) begin
+                            if (loop_conf[loop_update_idx] != LOOP_CONF_MAX) begin
+                                loop_conf[loop_update_idx] <= loop_conf[loop_update_idx] + 1'b1;
+                            end
+                        end else begin
+                            loop_trip_count[loop_update_idx] <= loop_iter_count[loop_update_idx];
+                            if (loop_conf[loop_update_idx] != 2'b00) begin
+                                loop_conf[loop_update_idx] <= loop_conf[loop_update_idx] - 1'b1;
+                            end
+                        end
+                    end
+                    loop_iter_count[loop_update_idx] <= {LOOP_COUNT_WIDTH{1'b0}};
+                end
             end
 
             if (ras_pop_en_i || ras_push_en_i) begin

@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 `include "defines.v"
 
 module id (
@@ -25,7 +26,27 @@ module id (
     output wire        is_branch_o,
     output wire        use_rs1_o,
     output wire        use_rs2_o,
-    output wire        use_base_addr_o
+    output wire        use_base_addr_o,
+    output wire [2:0]  ex_func3_o,
+    output wire        ex_func7_bit5_o,
+    output wire        ex_func7_is_r_o,
+    output wire        ex_func7_is_sub_o,
+    output wire        ex_is_op_imm_o,
+    output wire        ex_is_op_reg_o,
+    output wire        ex_is_branch_o,
+    output wire        ex_is_load_o,
+    output wire        ex_is_store_o,
+    output wire        ex_is_jal_o,
+    output wire        ex_is_jalr_o,
+    output wire        ex_is_auipc_o,
+    output wire        ex_is_lui_o,
+    output wire        ex_is_system_o,
+    output wire        ex_is_rv32m_o,
+    output wire        ex_is_csr_op_o,
+    output wire        ex_is_call_jal_o,
+    output wire        ex_ras_should_push_jalr_o,
+    output wire        ex_ras_should_pop_jalr_o,
+    output wire        ex_ras_predicted_jalr_o
 );
 
     wire [6:0]  opcode = inst_i[6:0];
@@ -35,9 +56,14 @@ module id (
     wire [4:0]  rs2    = inst_i[24:20];
     wire [11:0] imm    = inst_i[31:20];
     wire [4:0]  shamt  = imm[4:0];
+    wire [6:0]  func7  = inst_i[31:25];
 
     wire system_use_rs1 = (opcode == `INST_SYSTEM) &&
                           ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
+    wire is_system      = (opcode == `INST_SYSTEM);
+    wire rd_is_link     = (rd == 5'b1);
+    wire rs1_is_link    = (rs1 == 5'b1);
+    wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
 
     assign rs1_addr_o = rs1;
     assign rs2_addr_o = rs2;
@@ -59,6 +85,30 @@ module id (
     assign use_base_addr_o = (opcode == `INST_TYPE_L) ||
                              (opcode == `INST_TYPE_S) ||
                              (opcode == `INST_JALR);
+
+    assign ex_func3_o               = func3;
+    assign ex_func7_bit5_o          = func7[5];
+    assign ex_func7_is_r_o          = (func7 == `INST_FUNC7_R);
+    assign ex_func7_is_sub_o        = (func7 == `INST_FUNC7_SUB);
+    assign ex_is_op_imm_o           = (opcode == `INST_TYPE_I);
+    assign ex_is_op_reg_o           = (opcode == `INST_TYPE_R_M);
+    assign ex_is_branch_o           = (opcode == `INST_TYPE_B);
+    assign ex_is_load_o             = (opcode == `INST_TYPE_L);
+    assign ex_is_store_o            = (opcode == `INST_TYPE_S);
+    assign ex_is_jal_o              = (opcode == `INST_JAL);
+    assign ex_is_jalr_o             = (opcode == `INST_JALR);
+    assign ex_is_auipc_o            = (opcode == `INST_AUIPC);
+    assign ex_is_lui_o              = (opcode == `INST_LUI);
+    assign ex_is_system_o           = is_system;
+    assign ex_is_rv32m_o            = (opcode == `INST_TYPE_R_M) && (func7 == `INST_FUNC7_M);
+    assign ex_is_csr_op_o           = is_system &&
+                                      ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
+                                       (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
+                                       (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
+    assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
+    assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
+    assign ex_ras_predicted_jalr_o   = ex_ras_should_pop_jalr_o;
 
     always @(*) begin
         inst_o        = inst_i;

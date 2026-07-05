@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2023 Advanced Micro Devices, Inc. All Rights Reserved.
 ---------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2023.2 (win64) Build 4029153 Fri Oct 13 20:14:34 MDT 2023
-| Date         : Tue Jun  2 20:25:32 2026
+| Date         : Wed Jun 24 19:55:15 2026
 | Host         : LAPTOP-5UF1FH4A running 64-bit major release  (build 9200)
 | Command      : report_methodology -file C:/Users/hp/Downloads/digital_twin/digital_twin.srcs/sources_1/vivado_timing/top_methodology.rpt
 | Design       : top

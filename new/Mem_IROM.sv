@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module Mem_IROM (
     input  wire [11:0] addra,
     output reg  [31:0] douta,

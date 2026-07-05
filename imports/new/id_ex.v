@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 `include "defines.v"
 
 module id_ex (
@@ -26,6 +27,26 @@ module id_ex (
     input  wire [31:0] branch_offset_i,
     input  wire [31:0] mem_offset_i,
     input  wire [31:0] jump_offset_i,
+    input  wire [2:0]  ex_func3_i,
+    input  wire        ex_func7_bit5_i,
+    input  wire        ex_func7_is_r_i,
+    input  wire        ex_func7_is_sub_i,
+    input  wire        ex_is_op_imm_i,
+    input  wire        ex_is_op_reg_i,
+    input  wire        ex_is_branch_i,
+    input  wire        ex_is_load_i,
+    input  wire        ex_is_store_i,
+    input  wire        ex_is_jal_i,
+    input  wire        ex_is_jalr_i,
+    input  wire        ex_is_auipc_i,
+    input  wire        ex_is_lui_i,
+    input  wire        ex_is_system_i,
+    input  wire        ex_is_rv32m_i,
+    input  wire        ex_is_csr_op_i,
+    input  wire        ex_is_call_jal_i,
+    input  wire        ex_ras_should_push_jalr_i,
+    input  wire        ex_ras_should_pop_jalr_i,
+    input  wire        ex_ras_predicted_jalr_i,
 
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] inst_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] inst_addr_o,
@@ -46,7 +67,27 @@ module id_ex (
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] base_addr_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] branch_offset_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] mem_offset_o,
-    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] jump_offset_o
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [31:0] jump_offset_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [2:0]  ex_func3_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_func7_bit5_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_func7_is_r_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_func7_is_sub_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_op_imm_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_op_reg_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_branch_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_load_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_store_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_jal_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_jalr_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_auipc_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_lui_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_system_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_rv32m_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_csr_op_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_is_call_jal_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_ras_should_push_jalr_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_ras_should_pop_jalr_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        ex_ras_predicted_jalr_o
 );
 
     (* max_fanout = 8 *)wire [31:0] inst_next =
@@ -149,6 +190,106 @@ module id_ex (
         hold_flag_i  ? jump_offset_o :
                        jump_offset_i;
 
+    (* max_fanout = 8 *)wire [2:0] ex_func3_next =
+        flush_flag_i ? 3'b0 :
+        hold_flag_i  ? ex_func3_o :
+                       ex_func3_i;
+
+    (* max_fanout = 8 *)wire ex_func7_bit5_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_func7_bit5_o :
+                       ex_func7_bit5_i;
+
+    (* max_fanout = 8 *)wire ex_func7_is_r_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_func7_is_r_o :
+                       ex_func7_is_r_i;
+
+    (* max_fanout = 8 *)wire ex_func7_is_sub_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_func7_is_sub_o :
+                       ex_func7_is_sub_i;
+
+    (* max_fanout = 8 *)wire ex_is_op_imm_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_op_imm_o :
+                       ex_is_op_imm_i;
+
+    (* max_fanout = 8 *)wire ex_is_op_reg_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_op_reg_o :
+                       ex_is_op_reg_i;
+
+    (* max_fanout = 8 *)wire ex_is_branch_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_branch_o :
+                       ex_is_branch_i;
+
+    (* max_fanout = 8 *)wire ex_is_load_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_load_o :
+                       ex_is_load_i;
+
+    (* max_fanout = 8 *)wire ex_is_store_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_store_o :
+                       ex_is_store_i;
+
+    (* max_fanout = 8 *)wire ex_is_jal_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_jal_o :
+                       ex_is_jal_i;
+
+    (* max_fanout = 8 *)wire ex_is_jalr_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_jalr_o :
+                       ex_is_jalr_i;
+
+    (* max_fanout = 8 *)wire ex_is_auipc_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_auipc_o :
+                       ex_is_auipc_i;
+
+    (* max_fanout = 8 *)wire ex_is_lui_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_lui_o :
+                       ex_is_lui_i;
+
+    (* max_fanout = 8 *)wire ex_is_system_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_system_o :
+                       ex_is_system_i;
+
+    (* max_fanout = 8 *)wire ex_is_rv32m_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_rv32m_o :
+                       ex_is_rv32m_i;
+
+    (* max_fanout = 8 *)wire ex_is_csr_op_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_csr_op_o :
+                       ex_is_csr_op_i;
+
+    (* max_fanout = 8 *)wire ex_is_call_jal_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_call_jal_o :
+                       ex_is_call_jal_i;
+
+    (* max_fanout = 8 *)wire ex_ras_should_push_jalr_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_ras_should_push_jalr_o :
+                       ex_ras_should_push_jalr_i;
+
+    (* max_fanout = 8 *)wire ex_ras_should_pop_jalr_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_ras_should_pop_jalr_o :
+                       ex_ras_should_pop_jalr_i;
+
+    (* max_fanout = 8 *)wire ex_ras_predicted_jalr_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_ras_predicted_jalr_o :
+                       ex_ras_predicted_jalr_i;
+
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             inst_o          <= `INST_NOP;
@@ -171,6 +312,26 @@ module id_ex (
             branch_offset_o <= 32'b0;
             mem_offset_o    <= 32'b0;
             jump_offset_o   <= 32'b0;
+            ex_func3_o      <= 3'b0;
+            ex_func7_bit5_o <= 1'b0;
+            ex_func7_is_r_o <= 1'b0;
+            ex_func7_is_sub_o <= 1'b0;
+            ex_is_op_imm_o  <= 1'b0;
+            ex_is_op_reg_o  <= 1'b0;
+            ex_is_branch_o  <= 1'b0;
+            ex_is_load_o    <= 1'b0;
+            ex_is_store_o   <= 1'b0;
+            ex_is_jal_o     <= 1'b0;
+            ex_is_jalr_o    <= 1'b0;
+            ex_is_auipc_o   <= 1'b0;
+            ex_is_lui_o     <= 1'b0;
+            ex_is_system_o  <= 1'b0;
+            ex_is_rv32m_o   <= 1'b0;
+            ex_is_csr_op_o  <= 1'b0;
+            ex_is_call_jal_o <= 1'b0;
+            ex_ras_should_push_jalr_o <= 1'b0;
+            ex_ras_should_pop_jalr_o  <= 1'b0;
+            ex_ras_predicted_jalr_o   <= 1'b0;
         end else begin
             inst_o          <= inst_next;
             inst_addr_o     <= inst_addr_next;
@@ -192,6 +353,26 @@ module id_ex (
             branch_offset_o <= branch_offset_next;
             mem_offset_o    <= mem_offset_next;
             jump_offset_o   <= jump_offset_next;
+            ex_func3_o      <= ex_func3_next;
+            ex_func7_bit5_o <= ex_func7_bit5_next;
+            ex_func7_is_r_o <= ex_func7_is_r_next;
+            ex_func7_is_sub_o <= ex_func7_is_sub_next;
+            ex_is_op_imm_o  <= ex_is_op_imm_next;
+            ex_is_op_reg_o  <= ex_is_op_reg_next;
+            ex_is_branch_o  <= ex_is_branch_next;
+            ex_is_load_o    <= ex_is_load_next;
+            ex_is_store_o   <= ex_is_store_next;
+            ex_is_jal_o     <= ex_is_jal_next;
+            ex_is_jalr_o    <= ex_is_jalr_next;
+            ex_is_auipc_o   <= ex_is_auipc_next;
+            ex_is_lui_o     <= ex_is_lui_next;
+            ex_is_system_o  <= ex_is_system_next;
+            ex_is_rv32m_o   <= ex_is_rv32m_next;
+            ex_is_csr_op_o  <= ex_is_csr_op_next;
+            ex_is_call_jal_o <= ex_is_call_jal_next;
+            ex_ras_should_push_jalr_o <= ex_ras_should_push_jalr_next;
+            ex_ras_should_pop_jalr_o  <= ex_ras_should_pop_jalr_next;
+            ex_ras_predicted_jalr_o   <= ex_ras_predicted_jalr_next;
         end
     end
 
