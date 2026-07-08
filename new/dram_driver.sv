@@ -29,7 +29,7 @@ module dram_driver(
         .addrb  (rd_addr),
         .dinb   (32'b0),
         .doutb  (dram_rdata_q1),
-        .enb    (perip_rd_en),
+        .enb    (1'b1),
         .web    (4'b0)
     );
 

@@ -72,6 +72,8 @@ module open_risc_v (
     // ------------------------------------------------------------------
     wire [4:0]  id_rs1_addr_o;
     wire [4:0]  id_rs2_addr_o;
+    wire [2:0]  id_rs1_fwd_sel_o;
+    wire [2:0]  id_rs2_fwd_sel_o;
     wire [31:0] id_inst_o;
     wire [31:0] id_inst_addr_o;
     wire [31:0] id_op1_o;
@@ -133,6 +135,8 @@ module open_risc_v (
     wire [`BP_GHR_WIDTH-1:0] id_ex_pred_ghr_o;
     wire [4:0]  id_ex_rs1_addr_o;
     wire [4:0]  id_ex_rs2_addr_o;
+    wire [2:0]  id_ex_rs1_fwd_sel_o;
+    wire [2:0]  id_ex_rs2_fwd_sel_o;
     wire        id_ex_use_rs1_o;
     wire        id_ex_use_rs2_o;
     wire        id_ex_use_base_addr_o;
@@ -286,6 +290,10 @@ module open_risc_v (
     wire [31:0] mem_wb_mem_rd_addr_o;
     wire        mem_wb_is_slow_load_o;
     wire [31:0] mem_wb_inst_o;
+    wire [4:0]  mem_wb_rd_addr_fwd_o;
+    wire [31:0] mem_wb_rd_data_fwd_o;
+    wire        mem_wb_rd_wen_fwd_o;
+    wire        mem_wb_is_slow_load_fwd_o;
 
     assign mem_rd_reg_o  = ex_is_load_o;
     assign mem_rd_addr_o = ex_rd_mem_addr_o;
@@ -534,6 +542,29 @@ module open_risc_v (
     );
 
     // ==================================================================
+    // Early forwarding select
+    // ==================================================================
+    early_forwarding_select early_forwarding_select_inst (
+        .id_rs1_addr_i         (id_rs1_addr_o),
+        .id_rs2_addr_i         (id_rs2_addr_o),
+        .id_use_rs1_i          (id_use_rs1_o),
+        .id_use_rs2_i          (id_use_rs2_o),
+        .id_use_base_addr_i    (id_use_base_addr_o),
+        .ex_rd_addr_i          (id_ex_rd_addr_o),
+        .ex_rd_wen_i           (id_ex_reg_wen),
+        .ex_is_load_i          (id_ex_is_load_o),
+        .mem1_rd_addr_i        (ex_mem_pipe_rd_addr_o),
+        .mem1_rd_wen_i         (ex_mem_rd_wen_o),
+        .mem1_is_load_i        (ex_mem_is_load_o),
+        .mem1_load_cache_hit_i (mem1_load_cache_hit),
+        .mem2_rd_addr_i        (mem2_rd_addr_o),
+        .mem2_rd_wen_i         (mem2_rd_wen_o),
+        .mem2_is_slow_load_i   (mem2_is_slow_load_o),
+        .rs1_fwd_sel_o         (id_rs1_fwd_sel_o),
+        .rs2_fwd_sel_o         (id_rs2_fwd_sel_o)
+    );
+
+    // ==================================================================
     // ID/EX
     // ==================================================================
     id_ex id_ex_inst (
@@ -552,6 +583,8 @@ module open_risc_v (
         .pred_ghr_i      (if_id_pred_ghr_o),
         .rs1_addr_i      (id_rs1_addr_o),
         .rs2_addr_i      (id_rs2_addr_o),
+        .rs1_fwd_sel_i   (id_rs1_fwd_sel_o),
+        .rs2_fwd_sel_i   (id_rs2_fwd_sel_o),
         .use_rs1_i       (id_use_rs1_o),
         .use_rs2_i       (id_use_rs2_o),
         .use_base_addr_i (id_use_base_addr_o),
@@ -592,6 +625,8 @@ module open_risc_v (
         .pred_ghr_o      (id_ex_pred_ghr_o),
         .rs1_addr_o      (id_ex_rs1_addr_o),
         .rs2_addr_o      (id_ex_rs2_addr_o),
+        .rs1_fwd_sel_o   (id_ex_rs1_fwd_sel_o),
+        .rs2_fwd_sel_o   (id_ex_rs2_fwd_sel_o),
         .use_rs1_o       (id_ex_use_rs1_o),
         .use_rs2_o       (id_ex_use_rs2_o),
         .use_base_addr_o (id_ex_use_base_addr_o),
@@ -635,28 +670,12 @@ module open_risc_v (
         .id_ex_cmp_op2_i          (id_ex_cmp_op2_o),
         .id_ex_store_data_i       (id_ex_store_data_o),
         .id_ex_base_addr_i        (id_ex_base_addr_o),
-        .id_ex_rs1_addr_i         (id_ex_rs1_addr_o),
-        .id_ex_rs2_addr_i         (id_ex_rs2_addr_o),
-        .id_ex_use_rs1_i          (id_ex_use_rs1_o),
-        .id_ex_use_rs2_i          (id_ex_use_rs2_o),
-        .id_ex_use_base_addr_i    (id_ex_use_base_addr_o),
-        .ex_mem_rd_addr_i         (ex_mem_pipe_rd_addr_o),
+        .id_ex_rs1_fwd_sel_i      (id_ex_rs1_fwd_sel_o),
+        .id_ex_rs2_fwd_sel_i      (id_ex_rs2_fwd_sel_o),
         .ex_mem_rd_data_i         (ex_mem_rd_data_o),
-        .ex_mem_rd_wen_i          (ex_mem_rd_wen_o),
-        .ex_mem_is_load_i         (ex_mem_is_load_o),
-        .mem1_mem2_rd_addr_i      (mem1_mem2_rd_addr_o),
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
-        .mem1_mem2_rd_wen_i       (mem1_mem2_rd_wen_o),
-        .mem1_mem2_is_load_i      (mem1_mem2_is_load_o),
-        .mem1_mem2_load_cache_hit_i(mem1_mem2_load_cache_hit_o),
-        .mem2_rd_addr_i           (mem2_rd_addr_o),
         .mem2_rd_data_i           (mem2_rd_data_o),
-        .mem2_rd_wen_i            (mem2_rd_wen_o),
-        .mem2_is_slow_load_i      (mem2_is_slow_load_o),
-        .mem_wb_rd_addr_i         (mem_wb_rd_addr_o),
-        .mem_wb_rd_data_i         (mem_wb_rd_data_o),
-        .mem_wb_rd_wen_i          (mem_wb_rd_wen_o),
-        .mem_wb_is_slow_load_i    (mem_wb_is_slow_load_o),
+        .mem_wb_rd_data_i         (mem_wb_rd_data_fwd_o),
         .fwd_op1_o                (fwd_op1_o),
         .fwd_op2_o                (fwd_op2_o),
         .fwd_cmp_op2_o            (fwd_cmp_op2_o),
@@ -932,8 +951,13 @@ module open_risc_v (
         .bp_ras_pop_en_o   (mem_wb_bp_ras_pop_en_o),
         .bp_ras_push_addr_o(mem_wb_bp_ras_push_addr_o),
         .bp_actual_taken_o (mem_wb_bp_actual_taken_o),
-        .inst_o            (mem_wb_inst_o)
+        .inst_o            (mem_wb_inst_o),
+        .rd_addr_fwd_o      (mem_wb_rd_addr_fwd_o),
+        .rd_data_fwd_o      (mem_wb_rd_data_fwd_o),
+        .rd_wen_fwd_o       (mem_wb_rd_wen_fwd_o),
+        .is_slow_load_fwd_o (mem_wb_is_slow_load_fwd_o)
     );
+
 
     // ==================================================================
     // WB

@@ -29,8 +29,26 @@ module mem2_wb (
     output wire        bp_ras_push_en_o,
     output wire        bp_ras_pop_en_o,
     output wire [31:0] bp_ras_push_addr_o,
-    output wire        bp_actual_taken_o
+    output wire        bp_actual_taken_o,
+    (* equivalent_register_removal = "no" *) output reg [4:0]  rd_addr_fwd_o,
+    (* equivalent_register_removal = "no" *) output reg [31:0] rd_data_fwd_o,
+    (* equivalent_register_removal = "no" *) output reg        rd_wen_fwd_o,
+    (* equivalent_register_removal = "no" *) output reg        is_slow_load_fwd_o
 );
+
+always @(posedge clk) begin
+    if (rst == 1'b0) begin
+        rd_addr_fwd_o      <= 5'b0;
+        rd_data_fwd_o      <= 32'b0;
+        rd_wen_fwd_o       <= 1'b0;
+        is_slow_load_fwd_o <= 1'b0;
+    end else begin
+        rd_addr_fwd_o      <= rd_addr_i;
+        rd_data_fwd_o      <= rd_data_i;
+        rd_wen_fwd_o       <= rd_wen_i;
+        is_slow_load_fwd_o <= is_slow_load_i;
+    end
+end
 
     dff_set #(5)  dff_rd_addr         (clk, rst, 1'b0, 1'b0, 5'b0,      rd_addr_i,         rd_addr_o);
     dff_set #(32) dff_rd_data         (clk, rst, 1'b0, 1'b0, 32'b0,     rd_data_i,         rd_data_o);

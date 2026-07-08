@@ -18,6 +18,8 @@ module id_ex (
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
     input  wire [4:0]  rs1_addr_i,
     input  wire [4:0]  rs2_addr_i,
+    input  wire [2:0]  rs1_fwd_sel_i,
+    input  wire [2:0]  rs2_fwd_sel_i,
     input  wire        use_rs1_i,
     input  wire        use_rs2_i,
     input  wire        use_base_addr_i,
@@ -59,6 +61,8 @@ module id_ex (
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [`BP_GHR_WIDTH-1:0] pred_ghr_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [4:0]  rs1_addr_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [4:0]  rs2_addr_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [2:0]  rs1_fwd_sel_o,
+    (* extract_enable = "no" *) (* max_fanout = 8 *)output reg [2:0]  rs2_fwd_sel_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        use_rs1_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        use_rs2_o,
     (* extract_enable = "no" *) (* max_fanout = 8 *)output reg        use_base_addr_o,
@@ -144,6 +148,16 @@ module id_ex (
         flush_flag_i ? 5'b0       :
         hold_flag_i  ? rs2_addr_o :
                        rs2_addr_i;
+
+    (* max_fanout = 8 *)wire [2:0] rs1_fwd_sel_next =
+        flush_flag_i ? 3'b0          :
+        hold_flag_i  ? rs1_fwd_sel_o :
+                       rs1_fwd_sel_i;
+
+    (* max_fanout = 8 *)wire [2:0] rs2_fwd_sel_next =
+        flush_flag_i ? 3'b0          :
+        hold_flag_i  ? rs2_fwd_sel_o :
+                       rs2_fwd_sel_i;
 
     (* max_fanout = 8 *)wire use_rs1_next =
         flush_flag_i ? 1'b0      :
@@ -303,6 +317,8 @@ module id_ex (
             pred_ghr_o      <= {`BP_GHR_WIDTH{1'b0}};
             rs1_addr_o      <= 5'b0;
             rs2_addr_o      <= 5'b0;
+            rs1_fwd_sel_o   <= 3'b0;
+            rs2_fwd_sel_o   <= 3'b0;
             use_rs1_o       <= 1'b0;
             use_rs2_o       <= 1'b0;
             use_base_addr_o <= 1'b0;
@@ -344,6 +360,8 @@ module id_ex (
             pred_ghr_o      <= pred_ghr_next;
             rs1_addr_o      <= rs1_addr_next;
             rs2_addr_o      <= rs2_addr_next;
+            rs1_fwd_sel_o   <= rs1_fwd_sel_next;
+            rs2_fwd_sel_o   <= rs2_fwd_sel_next;
             use_rs1_o       <= use_rs1_next;
             use_rs2_o       <= use_rs2_next;
             use_base_addr_o <= use_base_addr_next;

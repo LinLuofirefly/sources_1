@@ -57,7 +57,7 @@ module id (
     wire [4:0]  rs2    = inst_i[24:20];
     wire [11:0] imm    = inst_i[31:20];
     wire [4:0]  shamt  = imm[4:0];
-    wire [6:0]  func7  = inst_i[31:25];
+    
 
     wire system_use_rs1 = (opcode == `INST_SYSTEM) &&
                           ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
