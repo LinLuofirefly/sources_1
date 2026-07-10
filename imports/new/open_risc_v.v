@@ -227,8 +227,11 @@ module open_risc_v (
     wire [31:0] fwd_op1_o;
     wire [31:0] fwd_op2_o;
     wire [31:0] fwd_cmp_op2_o;
+    wire [31:0] fwd_br_op1_o;
+    wire [31:0] fwd_br_op2_o;
     wire [31:0] fwd_store_data_o;
-    wire [31:0] fwd_base_addr_o;
+    wire [31:0] fwd_ls_base_addr_o;
+    wire [31:0] fwd_jalr_base_addr_o;
 
     // ------------------------------------------------------------------
     // EX/MEM1
@@ -669,24 +672,30 @@ module open_risc_v (
         .id_ex_op2_i              (id_ex_op2_o),
         .id_ex_cmp_op2_i          (id_ex_cmp_op2_o),
         .id_ex_store_data_i       (id_ex_store_data_o),
-        .id_ex_base_addr_i        (id_ex_base_addr_o),
+        .id_ex_ls_base_addr_i     (id_ex_base_addr_o),
+        .id_ex_jalr_base_addr_i   (id_ex_base_addr_o),
+        .id_ex_br_op1_i           (id_ex_op1_o),
+        .id_ex_br_op2_i           (id_ex_cmp_op2_o),
         .id_ex_rs1_fwd_sel_i      (id_ex_rs1_fwd_sel_o),
         .id_ex_rs2_fwd_sel_i      (id_ex_rs2_fwd_sel_o),
         .ex_mem_rd_data_i         (ex_mem_rd_data_o),
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
-        .mem2_rd_data_i           (mem2_rd_data_o),
         .mem_wb_rd_data_i         (mem_wb_rd_data_fwd_o),
         .fwd_op1_o                (fwd_op1_o),
         .fwd_op2_o                (fwd_op2_o),
         .fwd_cmp_op2_o            (fwd_cmp_op2_o),
+        .fwd_br_op1_o             (fwd_br_op1_o),
+        .fwd_br_op2_o             (fwd_br_op2_o),
         .fwd_store_data_o         (fwd_store_data_o),
-        .fwd_base_addr_o          (fwd_base_addr_o)
+        .fwd_ls_base_addr_o       (fwd_ls_base_addr_o),
+        .fwd_jalr_base_addr_o     (fwd_jalr_base_addr_o)
     );
 
     // ==================================================================
     // HDU
     // ==================================================================
     Hazard_detection_unit hdu_inst (
+        .id_inst_i            (id_inst_o),
         .id_rs1_addr_i        (id_rs1_addr_o),
         .id_rs2_addr_i        (id_rs2_addr_o),
         .id_use_rs1_i         (id_use_rs1_o),
@@ -713,6 +722,8 @@ module open_risc_v (
         .fwd_op1_i           (fwd_op1_o),
         .fwd_op2_i           (fwd_op2_o),
         .fwd_cmp_op2_i       (fwd_cmp_op2_o),
+        .fwd_br_op1_i        (fwd_br_op1_o),
+        .fwd_br_op2_i        (fwd_br_op2_o),
         .store_data_i        (fwd_store_data_o),
         .pred_taken_i        (id_ex_pred_taken_o),
         .pred_target_i       (id_ex_pred_target_o),
@@ -720,7 +731,8 @@ module open_risc_v (
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
         .kill_i              (ctrl_kill_ex_o),
-        .fwd_base_i          (fwd_base_addr_o),
+        .fwd_ls_base_i       (fwd_ls_base_addr_o),
+        .fwd_jalr_base_i     (fwd_jalr_base_addr_o),
         .branch_offset_i     (id_ex_branch_offset_o),
         .mem_offset_i        (id_ex_mem_offset_o),
         .jump_offset_i       (id_ex_jump_offset_o),

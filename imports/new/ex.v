@@ -9,6 +9,8 @@ module ex (
     input  wire [31:0] fwd_op1_i,
     input  wire [31:0] fwd_op2_i,
     input  wire [31:0] fwd_cmp_op2_i,
+    input  wire [31:0] fwd_br_op1_i,
+    input  wire [31:0] fwd_br_op2_i,
     input  wire [31:0] store_data_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
@@ -26,7 +28,8 @@ module ex (
 
     output reg  [31:0] inst_o,
 
-    input  wire [31:0] fwd_base_i,
+    input  wire [31:0] fwd_ls_base_i,
+    input  wire [31:0] fwd_jalr_base_i,
     input  wire [31:0] branch_offset_i,
     input  wire [31:0] mem_offset_i,
     input  wire [31:0] jump_offset_i,
@@ -74,8 +77,8 @@ module ex (
      (* max_fanout = 4 *)wire [31:0] alu_op1     = fwd_op1_i;
      (* max_fanout = 4 *)wire [31:0] alu_op2     = fwd_op2_i;
      (* max_fanout = 4 *)wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
-     (* max_fanout = 4 *)wire [31:0] br_op1      = fwd_op1_i;
-     (* max_fanout = 4 *)wire [31:0] br_cmp_op2  = fwd_cmp_op2_i;
+     (* max_fanout = 4 *)wire [31:0] br_op1      = fwd_br_op1_i;
+     (* max_fanout = 4 *)wire [31:0] br_cmp_op2  = fwd_br_op2_i;
 
      (* max_fanout = 4 *)wire br_eq             = (br_op1 == br_cmp_op2);
      (* max_fanout = 4 *)wire br_less_signed    = ($signed(br_op1) < $signed(br_cmp_op2));
@@ -93,10 +96,39 @@ module ex (
      (* max_fanout = 4 *)wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
      (* max_fanout = 4 *)wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
-     (* max_fanout = 4 *)wire [31:0] mem_addr           = fwd_base_i + mem_offset_i;
+     (* max_fanout = 4 *)wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
     (* max_fanout = 4 *)wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
-    (* max_fanout = 4 *)wire [31:0] jalr_target_addr   = (fwd_base_i + jump_offset_i) & ~32'd1;
+    (* max_fanout = 4 *)wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
+    (* max_fanout = 4 *)wire [31:0] jalr_target_addr   = {jalr_target_sum[31:1], 1'b0};
     (* max_fanout = 4 *)wire [31:0] fallthrough_addr   = inst_addr_i + 32'd4;
+    wire is_beq  = (func3 == `INST_BEQ);
+    wire is_bne  = (func3 == `INST_BNE);
+    wire is_blt  = (func3 == `INST_BLT);
+    wire is_bge  = (func3 == `INST_BGE);
+    wire is_bltu = (func3 == `INST_BLTU);
+    wire is_bgeu = (func3 == `INST_BGEU);
+    wire branch_taken_w =
+        (is_beq  && br_eq)             |
+        (is_bne  && ~br_eq)            |
+        (is_blt  && br_less_signed)    |
+        (is_bge  && ~br_less_signed)   |
+        (is_bltu && br_less_unsigned)  |
+        (is_bgeu && ~br_less_unsigned);
+    wire branch_redirect_w =
+        dec_is_branch_i &&
+        (branch_taken_w != pred_taken_i);
+    wire [31:0] branch_redirect_addr_w =
+        branch_taken_w ? branch_target_addr : fallthrough_addr;
+    wire jal_redirect_w =
+        dec_is_jal_i &&
+        (pred_taken_i == 1'b0);
+    wire jalr_redirect_w =
+        dec_is_jalr_i &&
+        (
+            !dec_ras_predicted_jalr_i ||
+            !pred_taken_i ||
+            (pred_target_i != jalr_target_addr)
+        );
     localparam [13:0] DRAM_REGION_TAG = 14'h2004;
 
     reg  [31:0] rv32m_inst_r;
@@ -249,24 +281,16 @@ module ex (
             end
 
             else if (dec_is_branch_i) begin
-                    case (func3)
-                        `INST_BNE:  branch_taken_r = ~br_eq;
-                        `INST_BEQ:  branch_taken_r = br_eq;
-                        `INST_BLT:  branch_taken_r = br_less_signed;
-                        `INST_BGE:  branch_taken_r = ~br_less_signed;
-                        `INST_BLTU: branch_taken_r = br_less_unsigned;
-                        `INST_BGEU: branch_taken_r = ~br_less_unsigned;
-                        default:    branch_taken_r = 1'b0;
-                    endcase
+                    branch_taken_r = branch_taken_w;
 
                     bp_update_en_o    = 1'b1;
                     bp_update_pc_o    = inst_addr_i;
                     bp_update_ghr_o   = pred_ghr_i;
-                    bp_actual_taken_o = branch_taken_r;
+                    bp_actual_taken_o = branch_taken_w;
 
-                    if (branch_taken_r != pred_taken_i) begin
+                    if (branch_redirect_w) begin
                         jump_en_o   = 1'b1;
-                        jump_addr_o = branch_taken_r ? branch_target_addr : fallthrough_addr;
+                        jump_addr_o = branch_redirect_addr_w;
                     end
             end
 
@@ -318,7 +342,7 @@ module ex (
                         bp_ras_push_addr_o = fallthrough_addr;
                     end
 
-                    if (pred_taken_i == 1'b0) begin
+                    if (jal_redirect_w) begin
                         jump_addr_o = jal_target_addr;
                         jump_en_o   = 1'b1;
                     end
@@ -339,12 +363,8 @@ module ex (
                         bp_ras_pop_en_o = 1'b1;
                     end
 
-                    if (dec_ras_predicted_jalr_i == 1'b1) begin
-                        if ((pred_taken_i == 1'b0) || (pred_target_i != jalr_target_addr)) begin
-                            jump_en_o = 1'b1;
-                        end
-                    end else begin
-                        jump_en_o   = 1'b1;
+                    if (jalr_redirect_w) begin
+                        jump_en_o = 1'b1;
                     end
             end
 

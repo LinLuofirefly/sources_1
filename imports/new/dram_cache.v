@@ -121,35 +121,59 @@ module dram_cache #(
         !mem2_load_cache_hit_i;
 
     (* ram_style = "block" *) reg [31:0] data_array [0:LINES-1];
-    reg [TAG_BITS-1:0] tag_array [0:LINES-1];
+    (* ram_style = "distributed" *) reg [TAG_BITS-1:0] tag_array [0:LINES-1];
     reg valid_array [0:LINES-1];
 
     reg [31:0] read_data_r;
     reg [TAG_BITS-1:0] read_tag_r;
     reg read_valid_r;
     integer i;
+    wire store_hit =
+        store_req &&
+        valid_array[store_idx] &&
+        (tag_array[store_idx] == store_tag);
+    wire refill_store_same_idx =
+        refill_req &&
+        (refill_idx == store_idx);
+    wire data_write_refill = refill_req;
+    wire data_write_store_hit = store_hit && !refill_store_same_idx;
 
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             read_data_r  <= 32'b0;
             read_tag_r   <= {TAG_BITS{1'b0}};
             read_valid_r <= 1'b0;
-            for (i = 0; i < LINES; i = i + 1) begin
-                valid_array[i] <= 1'b0;
-                tag_array[i]   <= {TAG_BITS{1'b0}};
-            end
         end else begin
             read_data_r  <= data_array[read_idx];
             read_tag_r   <= tag_array[read_idx];
             read_valid_r <= valid_array[read_idx];
+        end
+    end
 
-            if (store_req && valid_array[store_idx] && (tag_array[store_idx] == store_tag)) begin
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            for (i = 0; i < LINES; i = i + 1) begin
+                valid_array[i] <= 1'b0;
+            end
+        end else if (refill_req) begin
+            valid_array[refill_idx] <= 1'b1;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (rst == 1'b1 && refill_req) begin
+            tag_array[refill_idx] <= refill_tag;
+        end
+    end
+
+    always @(posedge clk) begin
+        if (rst == 1'b1) begin
+            if (data_write_refill) begin
+                data_array[refill_idx] <= refill_word;
+            end
+            if (data_write_store_hit) begin
                 data_array[store_idx] <=
                     merge_store_word(data_array[store_idx], store_data_i, store_wstrb_i);
-            end else if (refill_req) begin
-                valid_array[refill_idx] <= 1'b1;
-                tag_array[refill_idx]   <= refill_tag;
-                data_array[refill_idx]  <= refill_word;
             end
         end
     end

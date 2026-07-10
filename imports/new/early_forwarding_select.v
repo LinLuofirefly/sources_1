@@ -27,7 +27,6 @@ module early_forwarding_select (
     localparam [2:0] FWD_REG       = 3'd0;
     localparam [2:0] FWD_EX_MEM    = 3'd1;
     localparam [2:0] FWD_MEM1_MEM2 = 3'd2;
-    localparam [2:0] FWD_MEM2      = 3'd3;
     localparam [2:0] FWD_MEM_WB    = 3'd4;
 
     wire rs1_forward_allowed = id_use_rs1_i | id_use_base_addr_i;
