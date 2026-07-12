@@ -62,6 +62,7 @@ module ex (
 
      (* max_fanout = 4 *)output reg         bp_update_en_o,
      (* max_fanout = 4 *) output reg  [31:0] bp_update_pc_o,
+     (* max_fanout = 4 *) output reg  [31:0] bp_update_target_o,
      (* max_fanout = 4 *)output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
      (* max_fanout = 4 *)output reg         bp_ras_push_en_o,
      (* max_fanout = 4 *)output reg         bp_ras_pop_en_o,
@@ -116,7 +117,9 @@ module ex (
         (is_bgeu && ~br_less_unsigned);
     wire branch_redirect_w =
         dec_is_branch_i &&
-        (branch_taken_w != pred_taken_i);
+        ((branch_taken_w != pred_taken_i) ||
+         (branch_taken_w && pred_taken_i &&
+          (pred_target_i != branch_target_addr)));
     wire [31:0] branch_redirect_addr_w =
         branch_taken_w ? branch_target_addr : fallthrough_addr;
     wire jal_redirect_w =
@@ -202,6 +205,7 @@ module ex (
         load_hits_dram_o   = 1'b0;
         bp_update_en_o     = 1'b0;
         bp_update_pc_o     = 32'b0;
+        bp_update_target_o = 32'b0;
         bp_update_ghr_o    = {`BP_GHR_WIDTH{1'b0}};
         bp_ras_push_en_o   = 1'b0;
         bp_ras_pop_en_o    = 1'b0;
@@ -285,6 +289,7 @@ module ex (
 
                     bp_update_en_o    = 1'b1;
                     bp_update_pc_o    = inst_addr_i;
+                    bp_update_target_o = branch_target_addr;
                     bp_update_ghr_o   = pred_ghr_i;
                     bp_actual_taken_o = branch_taken_w;
 

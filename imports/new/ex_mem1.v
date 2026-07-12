@@ -18,6 +18,7 @@ module ex_mem1 (
     input  wire [31:0] store_load_fwd_data_i,
     input  wire        bp_update_en_i,
     input  wire [31:0] bp_update_pc_i,
+    input  wire [31:0] bp_update_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_i,
     input  wire        bp_ras_push_en_i,
     input  wire        bp_ras_pop_en_i,
@@ -38,6 +39,7 @@ module ex_mem1 (
     output wire [31:0] store_load_fwd_data_o,
     output wire        bp_update_en_o,
     output wire [31:0] bp_update_pc_o,
+    output wire [31:0] bp_update_target_o,
     output wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
     output wire        bp_ras_push_en_o,
     output wire        bp_ras_pop_en_o,
@@ -60,6 +62,7 @@ module ex_mem1 (
     dff_set #(32) dff_mem_rd_addr     (clk, rst, 1'b0, 1'b0, 32'b0,     mem_rd_addr_i,     mem_rd_addr_o);
     dff_set #(1)  dff_bp_update_en    (clk, rst, 1'b0, 1'b0, 1'b0,      bp_update_en_i,    bp_update_en_o);
     dff_set #(32) dff_bp_update_pc    (clk, rst, 1'b0, 1'b0, 32'b0,     bp_update_pc_i,    bp_update_pc_o);
+    dff_set #(32) dff_bp_update_target(clk, rst, 1'b0, 1'b0, 32'b0,     bp_update_target_i, bp_update_target_o);
     dff_set #(`BP_GHR_WIDTH) dff_bp_update_ghr(clk, rst, 1'b0, 1'b0, {`BP_GHR_WIDTH{1'b0}}, bp_update_ghr_i, bp_update_ghr_o);
     dff_set #(1)  dff_bp_ras_push_en  (clk, rst, 1'b0, 1'b0, 1'b0,      bp_ras_push_en_i,  bp_ras_push_en_o);
     dff_set #(1)  dff_bp_ras_pop_en   (clk, rst, 1'b0, 1'b0, 1'b0,      bp_ras_pop_en_i,   bp_ras_pop_en_o);

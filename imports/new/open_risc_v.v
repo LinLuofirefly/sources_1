@@ -38,6 +38,15 @@ module open_risc_v (
     wire [31:0] bp_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] bp_pred_ghr_o;
 
+    wire        bp_req_btb_hit_o;
+    wire        bp_req_pred_taken_o;
+    wire [31:0] bp_req_pred_target_o;
+    wire [`BP_GHR_WIDTH-1:0] bp_req_pred_ghr_o;
+    reg         bp_early_hit_r;
+    reg         bp_early_pred_taken_r;
+    reg  [31:0] bp_early_pred_target_r;
+    reg  [`BP_GHR_WIDTH-1:0] bp_early_pred_ghr_r;
+
     reg         bp_pred_flush_d1_r;
     reg         bp_replay_flush_d1_r;
 
@@ -185,6 +194,7 @@ module open_risc_v (
 
     wire        bp_update_en_o;
     wire [31:0] bp_update_pc_o;
+    wire [31:0] bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o;
     wire        bp_ras_push_en_o;
     wire        bp_ras_pop_en_o;
@@ -199,6 +209,7 @@ module open_risc_v (
     // ------------------------------------------------------------------
     wire        ex_mem_bp_update_en_o;
     wire [31:0] ex_mem_bp_update_pc_o;
+    wire [31:0] ex_mem_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] ex_mem_bp_update_ghr_o;
     wire        ex_mem_bp_ras_push_en_o;
     wire        ex_mem_bp_ras_pop_en_o;
@@ -207,6 +218,7 @@ module open_risc_v (
 
     wire        mem1_mem2_bp_update_en_o;
     wire [31:0] mem1_mem2_bp_update_pc_o;
+    wire [31:0] mem1_mem2_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] mem1_mem2_bp_update_ghr_o;
     wire        mem1_mem2_bp_ras_push_en_o;
     wire        mem1_mem2_bp_ras_pop_en_o;
@@ -215,6 +227,7 @@ module open_risc_v (
 
     wire        mem_wb_bp_update_en_o;
     wire [31:0] mem_wb_bp_update_pc_o;
+    wire [31:0] mem_wb_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] mem_wb_bp_update_ghr_o;
     wire        mem_wb_bp_ras_push_en_o;
     wire        mem_wb_bp_ras_pop_en_o;
@@ -353,7 +366,18 @@ module open_risc_v (
     // ==================================================================
 
     wire bp_if_valid =
-        ~bp_pred_flush_d1_r;
+        ~bp_pred_flush_d1_r &
+        ~bp_early_hit_r;
+
+    // A BTB hit carries the request-stage BHT/GHR result beside the one-cycle
+    // synchronous IROM response.  A miss falls back to the existing decoder-
+    // based predictor below.
+    wire bp_fetch_pred_taken =
+        bp_early_hit_r ? bp_early_pred_taken_r : bp_pred_taken_o;
+    wire [31:0] bp_fetch_pred_target =
+        bp_early_hit_r ? bp_early_pred_target_r : bp_pred_target_o;
+    wire [`BP_GHR_WIDTH-1:0] bp_fetch_pred_ghr =
+        bp_early_hit_r ? bp_early_pred_ghr_r : bp_pred_ghr_o;
 
     // A synchronous fetch package can coincide with the package already held
     // by IF/ID, especially after a predicted redirect. Suppress only exact
@@ -386,8 +410,18 @@ module open_risc_v (
     assign bp_pred_taken_accepted_o =
         bp_fetch_redirect | bp_replay_redirect;
 
+    // Request-stage redirect: the target request enters IROM immediately, so
+    // unlike the late fallback it must not create bp_pred_flush_d1_r.
+    wire bp_early_redirect =
+        rst &
+        ~hdu_hold_flag_o &
+        ~ctrl_jump_en_o &
+        ~bp_pred_taken_accepted_o &
+        bp_req_btb_hit_o &
+        bp_req_pred_taken_o;
+
     assign pc_jump_en_o =
-        ctrl_jump_en_o | bp_pred_taken_accepted_o;
+        ctrl_jump_en_o | bp_pred_taken_accepted_o | bp_early_redirect;
 
     // ?????? fetch redirect ??replay redirect ??????
     // ??????replay ??if_id_pred_target_o
@@ -395,6 +429,7 @@ module open_risc_v (
         ctrl_jump_en_o     ? ctrl_jump_addr_o :
         bp_replay_redirect ? if_id_pred_target_o :
         bp_fetch_redirect  ? bp_pred_target_o :
+        bp_early_redirect  ? bp_req_pred_target_o :
                               32'b0;
 
     always @(posedge clk) begin
@@ -402,8 +437,16 @@ module open_risc_v (
             bp_fetch_pc_r            <= 32'h8000_0000;
             bp_pred_flush_d1_r       <= 1'b0;
             bp_replay_flush_d1_r     <= 1'b0;
+            bp_early_hit_r           <= 1'b0;
+            bp_early_pred_taken_r    <= 1'b0;
+            bp_early_pred_target_r   <= 32'b0;
+            bp_early_pred_ghr_r      <= {`BP_GHR_WIDTH{1'b0}};
         end else begin
             bp_fetch_pc_r            <= pc_reg_pc_o;
+            bp_early_hit_r           <= bp_req_btb_hit_o;
+            bp_early_pred_taken_r    <= bp_req_pred_taken_o;
+            bp_early_pred_target_r   <= bp_req_pred_target_o;
+            bp_early_pred_ghr_r      <= bp_req_pred_ghr_o;
 
             // ?????redirect ??????IROM ??????ghost fetch??
             bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
@@ -430,11 +473,17 @@ module open_risc_v (
         .if_valid_i      (bp_if_valid),
         .if_inst_i       (inst_i),
         .if_pc_i         (bp_fetch_pc_r),
+        .req_pc_i        (pc_reg_pc_o),
+        .req_btb_hit_o   (bp_req_btb_hit_o),
+        .req_pred_taken_o(bp_req_pred_taken_o),
+        .req_pred_target_o(bp_req_pred_target_o),
+        .req_pred_ghr_o  (bp_req_pred_ghr_o),
         .pred_taken_o    (bp_pred_taken_o),
         .pred_target_o   (bp_pred_target_o),
         .pred_ghr_o      (bp_pred_ghr_o),
         .update_en_i     (mem_wb_bp_update_en_o),
         .update_pc_i     (mem_wb_bp_update_pc_o),
+        .update_target_i (mem_wb_bp_update_target_o),
         .update_ghr_i    (mem_wb_bp_update_ghr_o),
         .ras_push_en_i   (bp_ras_push_en_o),
         .ras_pop_en_i    (bp_ras_pop_en_o),
@@ -464,9 +513,9 @@ module open_risc_v (
         .load_valid_i       (ifid_fetch_valid),
         .inst_i             (inst_i),
         .inst_addr_i        (bp_fetch_pc_r),
-        .pred_taken_i       (bp_pred_taken_o),
-        .pred_target_i      (bp_pred_target_o),
-        .pred_ghr_i         (bp_pred_ghr_o),
+        .pred_taken_i       (bp_fetch_pred_taken),
+        .pred_target_i      (bp_fetch_pred_target),
+        .pred_ghr_i         (bp_fetch_pred_ghr),
         .hold_flag_i        (hdu_hold_flag_o),
         .flush_flag_i       (frontend_flush_ifid),
         .inst_addr_o        (if_id_inst_addr_o),
@@ -770,6 +819,7 @@ module open_risc_v (
         .inst_o              (ex_inst_o),
         .bp_update_en_o      (bp_update_en_o),
         .bp_update_pc_o      (bp_update_pc_o),
+        .bp_update_target_o  (bp_update_target_o),
         .bp_update_ghr_o     (bp_update_ghr_o),
         .bp_ras_push_en_o    (bp_ras_push_en_o),
         .bp_ras_pop_en_o     (bp_ras_pop_en_o),
@@ -816,6 +866,7 @@ module open_risc_v (
         .store_load_fwd_data_i (store_load_fwd_data_ex),
         .bp_update_en_i    (bp_update_en_o),
         .bp_update_pc_i    (bp_update_pc_o),
+        .bp_update_target_i(bp_update_target_o),
         .bp_update_ghr_i   (bp_update_ghr_o),
         .bp_ras_push_en_i  (bp_ras_push_en_o),
         .bp_ras_pop_en_i   (bp_ras_pop_en_o),
@@ -835,6 +886,7 @@ module open_risc_v (
         .store_load_fwd_data_o (ex_mem_store_load_fwd_data_o),
         .bp_update_en_o    (ex_mem_bp_update_en_o),
         .bp_update_pc_o    (ex_mem_bp_update_pc_o),
+        .bp_update_target_o(ex_mem_bp_update_target_o),
         .bp_update_ghr_o   (ex_mem_bp_update_ghr_o),
         .bp_ras_push_en_o  (ex_mem_bp_ras_push_en_o),
         .bp_ras_pop_en_o   (ex_mem_bp_ras_pop_en_o),
@@ -886,6 +938,7 @@ module open_risc_v (
         .store_load_fwd_data_i (ex_mem_store_load_fwd_data_o),
         .bp_update_en_i    (ex_mem_bp_update_en_o),
         .bp_update_pc_i    (ex_mem_bp_update_pc_o),
+        .bp_update_target_i(ex_mem_bp_update_target_o),
         .bp_update_ghr_i   (ex_mem_bp_update_ghr_o),
         .bp_ras_push_en_i  (ex_mem_bp_ras_push_en_o),
         .bp_ras_pop_en_i   (ex_mem_bp_ras_pop_en_o),
@@ -903,6 +956,7 @@ module open_risc_v (
         .store_load_fwd_data_o (mem1_mem2_store_load_fwd_data_o),
         .bp_update_en_o    (mem1_mem2_bp_update_en_o),
         .bp_update_pc_o    (mem1_mem2_bp_update_pc_o),
+        .bp_update_target_o(mem1_mem2_bp_update_target_o),
         .bp_update_ghr_o   (mem1_mem2_bp_update_ghr_o),
         .bp_ras_push_en_o  (mem1_mem2_bp_ras_push_en_o),
         .bp_ras_pop_en_o   (mem1_mem2_bp_ras_pop_en_o),
@@ -946,6 +1000,7 @@ module open_risc_v (
         .is_slow_load_i    (mem2_is_slow_load_o),
         .bp_update_en_i    (mem1_mem2_bp_update_en_o),
         .bp_update_pc_i    (mem1_mem2_bp_update_pc_o),
+        .bp_update_target_i(mem1_mem2_bp_update_target_o),
         .bp_update_ghr_i   (mem1_mem2_bp_update_ghr_o),
         .bp_ras_push_en_i  (mem1_mem2_bp_ras_push_en_o),
         .bp_ras_pop_en_i   (mem1_mem2_bp_ras_pop_en_o),
@@ -958,6 +1013,7 @@ module open_risc_v (
         .is_slow_load_o    (mem_wb_is_slow_load_o),
         .bp_update_en_o    (mem_wb_bp_update_en_o),
         .bp_update_pc_o    (mem_wb_bp_update_pc_o),
+        .bp_update_target_o(mem_wb_bp_update_target_o),
         .bp_update_ghr_o   (mem_wb_bp_update_ghr_o),
         .bp_ras_push_en_o  (mem_wb_bp_ras_push_en_o),
         .bp_ras_pop_en_o   (mem_wb_bp_ras_pop_en_o),

@@ -1,1 +1,21 @@
 sim/sim
+
+# Verilator generated build directories
+obj_dir*/
+
+# Vivado/XSim generated databases and work directories
+xsim.dir/
+**/xsim.dir/
+
+# Vivado/XSim generated logs, journals, databases, and waveforms
+xelab.log
+xelab.pb
+xsim*.log
+xsim*.jou
+xvlog.log
+xvlog.pb
+*.wdb
+
+# Native simulation build byproducts
+*.sdb
+*.rlx
