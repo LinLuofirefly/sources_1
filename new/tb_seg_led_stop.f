@@ -14,9 +14,12 @@ imports/new/pc_reg.v
 imports/new/if_id.v
 imports/new/id.v
 imports/new/id_ex.v
+imports/new/early_forwarding_select.v
 imports/new/forwarding.v
 imports/new/Hazard_detection_unit.v
 imports/new/ex.v
+imports/new/rv32m_iter.v
+imports/new/csr.v
 imports/new/ctrl.v
 imports/new/ex_mem1.v
 imports/new/mem1.v
