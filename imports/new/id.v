@@ -22,6 +22,7 @@ module id (
     output reg  [31:0] branch_offset_o,
     output reg  [31:0] mem_offset_o,
     output reg  [31:0] jump_offset_o,
+    output reg  [2:0]  branch_cond_o,
     output reg         mem_rd_reg_o,
     output wire        is_branch_o,
     output wire        use_rs1_o,
@@ -123,6 +124,7 @@ module id (
         branch_offset_o = 32'b0;
         mem_offset_o    = 32'b0;
         jump_offset_o   = 32'b0;
+        branch_cond_o   = `BR_NONE;
         mem_rd_reg_o  = 1'b0;
 
         case (opcode)
@@ -160,12 +162,23 @@ module id (
             end
 
             `INST_TYPE_B: begin
+                // Predecode the branch condition in ID and register it into EX.
+                // This avoids decoding funct3 again on the branch redirect path.
                 case (func3)
                     `INST_BNE, `INST_BEQ, `INST_BLT,
                     `INST_BGE, `INST_BLTU, `INST_BGEU: begin
                         op1_o         = rs1_data_i;
                         cmp_op2_o     = rs2_data_i;
                         branch_offset_o = {{20{inst_i[31]}}, inst_i[7], inst_i[30:25], inst_i[11:8], 1'b0};
+                        case (func3)
+                            `INST_BEQ:  branch_cond_o = `BR_EQ;
+                            `INST_BNE:  branch_cond_o = `BR_NE;
+                            `INST_BLT:  branch_cond_o = `BR_LT;
+                            `INST_BGE:  branch_cond_o = `BR_GE;
+                            `INST_BLTU: branch_cond_o = `BR_LTU;
+                            `INST_BGEU: branch_cond_o = `BR_GEU;
+                            default:    branch_cond_o = `BR_NONE;
+                        endcase
                     end
                     default: begin
                     end

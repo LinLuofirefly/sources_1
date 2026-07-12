@@ -52,6 +52,10 @@ module open_risc_v (
 
     wire [31:0] pc_jump_addr_o;
     wire        pc_jump_en_o;
+    reg         pc_redirect_valid;
+    reg  [31:0] pc_redirect_target;
+    wire        bp_pc_redirect_valid;
+    wire [31:0] bp_pc_redirect_target;
 
     reg  [31:0] bp_fetch_pc_r;
 
@@ -95,6 +99,7 @@ module open_risc_v (
     wire [31:0] id_branch_offset_o;
     wire [31:0] id_mem_offset_o;
     wire [31:0] id_jump_offset_o;
+    wire [2:0]  id_branch_cond_o;
     wire        id_use_rs1_o;
     wire        id_use_rs2_o;
     wire        id_is_branch_o;
@@ -155,6 +160,7 @@ module open_risc_v (
     wire [31:0] id_ex_branch_offset_o;
     wire [31:0] id_ex_mem_offset_o;
     wire [31:0] id_ex_jump_offset_o;
+    wire [2:0]  id_ex_branch_cond_o;
     wire [2:0]  id_ex_func3_o;
     wire        id_ex_func7_bit5_o;
     wire        id_ex_func7_is_r_o;
@@ -369,15 +375,20 @@ module open_risc_v (
         ~bp_pred_flush_d1_r &
         ~bp_early_hit_r;
 
-    // A BTB hit carries the request-stage BHT/GHR result beside the one-cycle
-    // synchronous IROM response.  A miss falls back to the existing decoder-
-    // based predictor below.
-    wire bp_fetch_pred_taken =
-        bp_early_hit_r ? bp_early_pred_taken_r : bp_pred_taken_o;
-    wire [31:0] bp_fetch_pred_target =
-        bp_early_hit_r ? bp_early_pred_target_r : bp_pred_target_o;
-    wire [`BP_GHR_WIDTH-1:0] bp_fetch_pred_ghr =
-        bp_early_hit_r ? bp_early_pred_ghr_r : bp_pred_ghr_o;
+    // Select the live or held prediction as one complete packet.
+    // Taken, target and prediction metadata must stay cycle-aligned.
+    wire use_held_prediction = bp_early_hit_r;
+    wire live_pred_valid     = bp_if_valid;
+    wire held_pred_valid     = bp_early_hit_r;
+
+    wire effective_pred_valid =
+        use_held_prediction ? held_pred_valid : live_pred_valid;
+    wire effective_pred_taken =
+        use_held_prediction ? bp_early_pred_taken_r : bp_pred_taken_o;
+    wire [31:0] effective_pred_target =
+        use_held_prediction ? bp_early_pred_target_r : bp_pred_target_o;
+    wire [`BP_GHR_WIDTH-1:0] effective_pred_ghr =
+        use_held_prediction ? bp_early_pred_ghr_r : bp_pred_ghr_o;
 
     // A synchronous fetch package can coincide with the package already held
     // by IF/ID, especially after a predicted redirect. Suppress only exact
@@ -386,6 +397,7 @@ module open_risc_v (
         if_id_load_valid_o && (bp_fetch_pc_r == if_id_inst_addr_o);
 
     wire ifid_fetch_valid =
+        effective_pred_valid &
         ~ctrl_flush_ifid_o &
         ~bp_pred_flush_d1_r &
         ~ifid_duplicate;
@@ -395,20 +407,24 @@ module open_risc_v (
         ~hdu_hold_flag_o &
         ~if_id_replay_pending_o;
 
-    // ifid_fetch_valid already suppresses exact replay duplicates.
-    // ???fetch redirect?????????? ~if_id_replaying_o
+    // Keep the prediction-to-PC redirect path independent from
+    // predictor bookkeeping, statistics and update control.
     wire bp_fetch_redirect =
         ifid_direct_fire &
+        ~use_held_prediction &
         bp_pred_taken_o;
-
-    // replay ????IF/ID ??????taken???? redirect
     wire bp_replay_redirect =
         if_id_replaying_o &
         if_id_pred_taken_o &
         ~hdu_hold_flag_o;
-
-    assign bp_pred_taken_accepted_o =
+    assign bp_pc_redirect_valid =
         bp_fetch_redirect | bp_replay_redirect;
+    assign bp_pc_redirect_target =
+        bp_replay_redirect ? if_id_pred_target_o : bp_pred_target_o;
+
+    // Predictor acceptance bookkeeping is generated in parallel.
+    // It must not add logic levels to the timing-critical PC path.
+    assign bp_pred_taken_accepted_o = bp_pc_redirect_valid;
 
     // Request-stage redirect: the target request enters IROM immediately, so
     // unlike the late fallback it must not create bp_pred_flush_d1_r.
@@ -416,21 +432,31 @@ module open_risc_v (
         rst &
         ~hdu_hold_flag_o &
         ~ctrl_jump_en_o &
-        ~bp_pred_taken_accepted_o &
+        ~bp_pc_redirect_valid &
         bp_req_btb_hit_o &
         bp_req_pred_taken_o;
 
-    assign pc_jump_en_o =
-        ctrl_jump_en_o | bp_pred_taken_accepted_o | bp_early_redirect;
+    // Select the final PC redirect valid and target in one priority block.
+    // This keeps redirect control and target selection consistent and avoids
+    // duplicated combinational cones feeding the PC update path.
+    always @(*) begin
+        pc_redirect_valid  = 1'b0;
+        pc_redirect_target = 32'b0;
 
-    // ?????? fetch redirect ??replay redirect ??????
-    // ??????replay ??if_id_pred_target_o
-    assign pc_jump_addr_o =
-        ctrl_jump_en_o     ? ctrl_jump_addr_o :
-        bp_replay_redirect ? if_id_pred_target_o :
-        bp_fetch_redirect  ? bp_pred_target_o :
-        bp_early_redirect  ? bp_req_pred_target_o :
-                              32'b0;
+        if (ctrl_jump_en_o) begin
+            pc_redirect_valid  = 1'b1;
+            pc_redirect_target = ctrl_jump_addr_o;
+        end else if (bp_pc_redirect_valid) begin
+            pc_redirect_valid  = 1'b1;
+            pc_redirect_target = bp_pc_redirect_target;
+        end else if (bp_early_redirect) begin
+            pc_redirect_valid  = 1'b1;
+            pc_redirect_target = bp_req_pred_target_o;
+        end
+    end
+
+    assign pc_jump_en_o   = pc_redirect_valid;
+    assign pc_jump_addr_o = pc_redirect_target;
 
     always @(posedge clk) begin
         if (rst == 1'b0) begin
@@ -513,9 +539,9 @@ module open_risc_v (
         .load_valid_i       (ifid_fetch_valid),
         .inst_i             (inst_i),
         .inst_addr_i        (bp_fetch_pc_r),
-        .pred_taken_i       (bp_fetch_pred_taken),
-        .pred_target_i      (bp_fetch_pred_target),
-        .pred_ghr_i         (bp_fetch_pred_ghr),
+        .pred_taken_i       (effective_pred_taken),
+        .pred_target_i      (effective_pred_target),
+        .pred_ghr_i         (effective_pred_ghr),
         .hold_flag_i        (hdu_hold_flag_o),
         .flush_flag_i       (frontend_flush_ifid),
         .inst_addr_o        (if_id_inst_addr_o),
@@ -566,6 +592,7 @@ module open_risc_v (
         .branch_offset_o (id_branch_offset_o),
         .mem_offset_o    (id_mem_offset_o),
         .jump_offset_o   (id_jump_offset_o),
+        .branch_cond_o   (id_branch_cond_o),
         .mem_rd_reg_o    (data_read_en),
         .is_branch_o     (id_is_branch_o),
         .use_rs1_o       (id_use_rs1_o),
@@ -646,6 +673,7 @@ module open_risc_v (
         .branch_offset_i (id_branch_offset_o),
         .mem_offset_i    (id_mem_offset_o),
         .jump_offset_i   (id_jump_offset_o),
+        .branch_cond_i   (id_branch_cond_o),
         .ex_func3_i      (id_dec_func3_o),
         .ex_func7_bit5_i (id_dec_func7_bit5_o),
         .ex_func7_is_r_i (id_dec_func7_is_r_o),
@@ -688,6 +716,7 @@ module open_risc_v (
         .branch_offset_o (id_ex_branch_offset_o),
         .mem_offset_o    (id_ex_mem_offset_o),
         .jump_offset_o   (id_ex_jump_offset_o),
+        .branch_cond_o   (id_ex_branch_cond_o),
         .ex_func3_o      (id_ex_func3_o),
         .ex_func7_bit5_o (id_ex_func7_bit5_o),
         .ex_func7_is_r_o (id_ex_func7_is_r_o),
@@ -710,7 +739,9 @@ module open_risc_v (
         .ex_ras_predicted_jalr_o  (id_ex_ras_predicted_jalr_o)
     );
 
-    (* max_fanout = 8 *)assign mem2_is_slow_load_o = mem1_mem2_is_load_o &&
+    // Do not force max_fanout on wide datapath buses.
+    // Excessive register replication can worsen physical routing timing.
+    assign mem2_is_slow_load_o = mem1_mem2_is_load_o &&
                                   ~mem1_mem2_load_hits_dram_o;
 
     // ==================================================================
@@ -785,6 +816,7 @@ module open_risc_v (
         .branch_offset_i     (id_ex_branch_offset_o),
         .mem_offset_i        (id_ex_mem_offset_o),
         .jump_offset_i       (id_ex_jump_offset_o),
+        .branch_cond_i       (id_ex_branch_cond_o),
         .dec_func3_i         (id_ex_func3_o),
         .dec_func7_bit5_i    (id_ex_func7_bit5_o),
         .dec_func7_is_r_i    (id_ex_func7_is_r_o),

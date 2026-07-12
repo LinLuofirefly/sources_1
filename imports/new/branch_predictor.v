@@ -29,9 +29,9 @@ module branch_predictor #(
     output wire [31:0] req_pred_target_o,
     output wire [BHT_ADDR_WIDTH-1:0] req_pred_ghr_o,
 
-    (* max_fanout = 8 *)output reg         pred_taken_o,
-    (* max_fanout = 8 *)output reg  [31:0] pred_target_o,
-    (* max_fanout = 8 *)output wire [BHT_ADDR_WIDTH-1:0] pred_ghr_o,
+    output reg         pred_taken_o,
+    output reg  [31:0] pred_target_o,
+    output wire [BHT_ADDR_WIDTH-1:0] pred_ghr_o,
 
     input  wire        update_en_i,
     input  wire [31:0] update_pc_i,
@@ -43,6 +43,8 @@ module branch_predictor #(
     input  wire        actual_taken_i
 );
 
+    // Do not force max_fanout on wide datapath buses.
+    // Excessive register replication can worsen physical routing timing.
     localparam [1:0] STRONGLY_NOT_TAKEN = 2'b00;
     localparam [1:0] WEAKLY_NOT_TAKEN   = 2'b01;
     localparam [1:0] WEAKLY_TAKEN       = 2'b10;
@@ -65,12 +67,12 @@ module branch_predictor #(
    (* ram_style = "distributed" *) reg [1:0] loop_conf [0:LOOP_SIZE-1];
    (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_iter_count [0:LOOP_SIZE-1];
    (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_trip_count [0:LOOP_SIZE-1];
-   (* max_fanout = 8 *)reg [BHT_ADDR_WIDTH-1:0] ghr_r;
-   (* max_fanout = 8 *)reg [31:0] ras [0:RAS_DEPTH-1];
-   (* max_fanout = 8 *)reg [RAS_PTR_WIDTH-1:0] ras_sp_r;
-   (* max_fanout = 8 *)reg [RAS_PTR_WIDTH:0] ras_count_r;
-   (* max_fanout = 8 *)reg [RAS_PTR_WIDTH-1:0] ras_sp_next_r;
-   (* max_fanout = 8 *)reg [RAS_PTR_WIDTH:0] ras_count_next_r;
+   reg [BHT_ADDR_WIDTH-1:0] ghr_r;
+   reg [31:0] ras [0:RAS_DEPTH-1];
+   reg [RAS_PTR_WIDTH-1:0] ras_sp_r;
+   reg [RAS_PTR_WIDTH:0] ras_count_r;
+   reg [RAS_PTR_WIDTH-1:0] ras_sp_next_r;
+   reg [RAS_PTR_WIDTH:0] ras_count_next_r;
 
    function [BHT_ADDR_WIDTH-1:0] pc_hash;
         input [31:0] pc;
@@ -86,62 +88,62 @@ module branch_predictor #(
         end
    endfunction
 
-   (* max_fanout = 8 *)wire [6:0] opcode = if_inst_i[6:0];
-   (* max_fanout = 8 *)wire [2:0] funct3 = if_inst_i[14:12];
-   (* max_fanout = 8 *)wire [4:0] rd     = if_inst_i[11:7];
-   (* max_fanout = 8 *)wire [4:0] rs1    = if_inst_i[19:15];
+   wire [6:0] opcode = if_inst_i[6:0];
+   wire [2:0] funct3 = if_inst_i[14:12];
+   wire [4:0] rd     = if_inst_i[11:7];
+   wire [4:0] rs1    = if_inst_i[19:15];
 
-    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] pred_pc_idx   = pc_hash(if_pc_i);
-    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] req_pc_idx    = pc_hash(req_pc_i);
-   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] update_pc_idx = pc_hash(update_pc_i);
-    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] pred_idx      = pred_pc_idx ^ ghr_r;
-    (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] req_pred_idx  = req_pc_idx ^ ghr_r;
-   (* max_fanout = 8 *)wire [BHT_ADDR_WIDTH-1:0] update_idx    = update_pc_idx ^ update_ghr_i;
-   (* max_fanout = 8 *)wire [LOOP_ADDR_WIDTH-1:0] loop_pred_idx = loop_hash(if_pc_i);
-    (* max_fanout = 8 *)wire [LOOP_ADDR_WIDTH-1:0] loop_update_idx = loop_hash(update_pc_i);
-    (* max_fanout = 8 *)wire [BTB_ADDR_WIDTH-1:0] req_btb_idx = req_pc_i[BTB_ADDR_WIDTH+1:2];
-    (* max_fanout = 8 *)wire [BTB_ADDR_WIDTH-1:0] update_btb_idx = update_pc_i[BTB_ADDR_WIDTH+1:2];
+    wire [BHT_ADDR_WIDTH-1:0] pred_pc_idx   = pc_hash(if_pc_i);
+    wire [BHT_ADDR_WIDTH-1:0] req_pc_idx    = pc_hash(req_pc_i);
+   wire [BHT_ADDR_WIDTH-1:0] update_pc_idx = pc_hash(update_pc_i);
+    wire [BHT_ADDR_WIDTH-1:0] pred_idx      = pred_pc_idx ^ ghr_r;
+    wire [BHT_ADDR_WIDTH-1:0] req_pred_idx  = req_pc_idx ^ ghr_r;
+   wire [BHT_ADDR_WIDTH-1:0] update_idx    = update_pc_idx ^ update_ghr_i;
+   wire [LOOP_ADDR_WIDTH-1:0] loop_pred_idx = loop_hash(if_pc_i);
+    wire [LOOP_ADDR_WIDTH-1:0] loop_update_idx = loop_hash(update_pc_i);
+    wire [BTB_ADDR_WIDTH-1:0] req_btb_idx = req_pc_i[BTB_ADDR_WIDTH+1:2];
+    wire [BTB_ADDR_WIDTH-1:0] update_btb_idx = update_pc_i[BTB_ADDR_WIDTH+1:2];
 
-   (* max_fanout = 8 *)wire [31:0] b_imm =
+   wire [31:0] b_imm =
         {{20{if_inst_i[31]}}, if_inst_i[7], if_inst_i[30:25], if_inst_i[11:8], 1'b0};
-    (* max_fanout = 8 *)wire [31:0] j_imm =
+    wire [31:0] j_imm =
         {{12{if_inst_i[31]}}, if_inst_i[19:12], if_inst_i[20], if_inst_i[30:21], 1'b0};
 
-    (* max_fanout = 8 *)wire btfnt_taken = b_imm[31];
+    wire btfnt_taken = b_imm[31];
 
-    (* max_fanout = 8 *)wire rd_is_link  = (rd == 5'b00001);
-    (* max_fanout = 8 *)wire rs1_is_link = (rs1 == 5'b00001);
+    wire rd_is_link  = (rd == 5'b00001);
+    wire rs1_is_link = (rs1 == 5'b00001);
 
-    (* max_fanout = 8 *)wire ras_nonempty = (ras_count_r != {RAS_PTR_WIDTH+1{1'b0}});
-    (* max_fanout = 8 *)wire [RAS_PTR_WIDTH-1:0] ras_top_idx =
+    wire ras_nonempty = (ras_count_r != {RAS_PTR_WIDTH+1{1'b0}});
+    wire [RAS_PTR_WIDTH-1:0] ras_top_idx =
         (ras_sp_r == {RAS_PTR_WIDTH{1'b0}}) ? RAS_LAST_PTR : (ras_sp_r - 1'b1);
 
-    (* max_fanout = 8 *)wire is_jalr_hint = (opcode == `INST_JALR) && (funct3 == 3'b000);
-    (* max_fanout = 8 *)wire ras_pred_pop = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
-    (* max_fanout = 8 *)wire ras_pred_valid =
+    wire is_jalr_hint = (opcode == `INST_JALR) && (funct3 == 3'b000);
+    wire ras_pred_pop = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
+    wire ras_pred_valid =
         ENABLE_JALR_RAS_PRED && ras_pred_pop && ras_nonempty;
 
-    (* max_fanout = 8 *)wire loop_pred_hit =
+    wire loop_pred_hit =
         ENABLE_LOOP_PRED &&
         btfnt_taken &&
         loop_valid[loop_pred_idx] &&
         (loop_tag[loop_pred_idx] == if_pc_i) &&
         (loop_conf[loop_pred_idx] == LOOP_CONF_MAX);
-    (* max_fanout = 8 *)wire loop_pred_exit =
+    wire loop_pred_exit =
         (loop_trip_count[loop_pred_idx] != {LOOP_COUNT_WIDTH{1'b0}}) &&
         (loop_iter_count[loop_pred_idx] == loop_trip_count[loop_pred_idx]);
-    (* max_fanout = 8 *)wire loop_pred_taken_w =
+    wire loop_pred_taken_w =
         loop_pred_exit ? ~loop_dir[loop_pred_idx] : loop_dir[loop_pred_idx];
 
-    (* max_fanout = 8 *)wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
-    (* max_fanout = 8 *)wire req_branch_bht_pred_taken_w =
+    wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
+    wire req_branch_bht_pred_taken_w =
         bht_valid[req_pred_idx] ? bht[req_pred_idx][1] :
         (btb_target[req_btb_idx] < req_pc_i);
-    (* max_fanout = 8 *)wire branch_pred_taken_w  = loop_pred_hit ? loop_pred_taken_w : branch_bht_pred_taken_w;
-    (* max_fanout = 8 *)wire [31:0] branch_pred_target_w = if_pc_i + b_imm;
-    (* max_fanout = 8 *)wire [31:0] jal_pred_target_w    = if_pc_i + j_imm;
-    (* max_fanout = 8 *)wire [31:0] jalr_pred_target_w   = ras[ras_top_idx];
-    (* max_fanout = 8 *)wire loop_update_hit =
+    wire branch_pred_taken_w  = loop_pred_hit ? loop_pred_taken_w : branch_bht_pred_taken_w;
+    wire [31:0] branch_pred_target_w = if_pc_i + b_imm;
+    wire [31:0] jal_pred_target_w    = if_pc_i + j_imm;
+    wire [31:0] jalr_pred_target_w   = ras[ras_top_idx];
+    wire loop_update_hit =
         loop_valid[loop_update_idx] && (loop_tag[loop_update_idx] == update_pc_i);
 
     integer i;

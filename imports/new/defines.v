@@ -88,3 +88,12 @@
 `define INST_BGE    3'b101
 `define INST_BLTU   3'b110
 `define INST_BGEU   3'b111
+
+// Predecoded branch condition passed from ID to EX.
+`define BR_NONE 3'd0
+`define BR_EQ   3'd1
+`define BR_NE   3'd2
+`define BR_LT   3'd3
+`define BR_GE   3'd4
+`define BR_LTU  3'd5
+`define BR_GEU  3'd6

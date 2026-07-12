@@ -19,6 +19,8 @@ module ex (
     input  wire        rd_wen_i,
     input  wire        kill_i,
 
+    // Do not force max_fanout on wide datapath buses.
+    // Excessive register replication can worsen physical routing timing.
     output reg  [4:0]  rd_addr_o,
     output reg  [31:0] rd_data_o,
     output reg         rd_wen_o,
@@ -33,6 +35,7 @@ module ex (
     input  wire [31:0] branch_offset_i,
     input  wire [31:0] mem_offset_i,
     input  wire [31:0] jump_offset_i,
+    input  wire [2:0]  branch_cond_i,
     input  wire [2:0]  dec_func3_i,
     input  wire        dec_func7_bit5_i,
     input  wire        dec_func7_is_r_i,
@@ -57,71 +60,81 @@ module ex (
     output reg  [3:0]  mem_wd_reg_o,
     output reg  [31:0] mem_wd_addr_o,
     output reg  [31:0] mem_wd_data_o,
-    (* max_fanout = 8 *)output reg         is_load_o,
-    (* max_fanout = 8 *)output reg         load_hits_dram_o,
+    output reg         is_load_o,
+    output reg         load_hits_dram_o,
 
-     (* max_fanout = 4 *)output reg         bp_update_en_o,
-     (* max_fanout = 4 *) output reg  [31:0] bp_update_pc_o,
-     (* max_fanout = 4 *) output reg  [31:0] bp_update_target_o,
-     (* max_fanout = 4 *)output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
-     (* max_fanout = 4 *)output reg         bp_ras_push_en_o,
-     (* max_fanout = 4 *)output reg         bp_ras_pop_en_o,
-    (* max_fanout = 4 *)output reg  [31:0] bp_ras_push_addr_o,
-    (* max_fanout = 4 *)output reg         bp_actual_taken_o,
-    (* max_fanout = 4 *) output wire        rv32m_busy_o,
-     (* max_fanout = 4 *)output wire        rv32m_done_o
+     output reg         bp_update_en_o,
+      output reg  [31:0] bp_update_pc_o,
+      output reg  [31:0] bp_update_target_o,
+     output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
+     output reg         bp_ras_push_en_o,
+     output reg         bp_ras_pop_en_o,
+    output reg  [31:0] bp_ras_push_addr_o,
+    output reg         bp_actual_taken_o,
+     output wire        rv32m_busy_o,
+     output wire        rv32m_done_o
 );
 
-     (* max_fanout = 4 *)wire [2:0] func3  = dec_func3_i;
-     (* max_fanout = 4 *)wire [4:0] shamt  = fwd_op2_i[4:0];
+     wire [2:0] func3  = dec_func3_i;
+     wire [4:0] shamt  = fwd_op2_i[4:0];
 
-     (* max_fanout = 4 *)wire [31:0] alu_op1     = fwd_op1_i;
-     (* max_fanout = 4 *)wire [31:0] alu_op2     = fwd_op2_i;
-     (* max_fanout = 4 *)wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
-     (* max_fanout = 4 *)wire [31:0] br_op1      = fwd_br_op1_i;
-     (* max_fanout = 4 *)wire [31:0] br_cmp_op2  = fwd_br_op2_i;
+     wire [31:0] alu_op1     = fwd_op1_i;
+     wire [31:0] alu_op2     = fwd_op2_i;
+     wire [31:0] alu_cmp_op2 = fwd_cmp_op2_i;
+     wire [31:0] branch_op1 = fwd_br_op1_i;
+     wire [31:0] branch_op2 = fwd_br_op2_i;
 
-     (* max_fanout = 4 *)wire br_eq             = (br_op1 == br_cmp_op2);
-     (* max_fanout = 4 *)wire br_less_signed    = ($signed(br_op1) < $signed(br_cmp_op2));
-     (* max_fanout = 4 *)wire br_less_unsigned  = (br_op1 < br_cmp_op2);
-     (* max_fanout = 4 *)wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
-     (* max_fanout = 4 *)wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
+     // Generate only the three base branch comparisons.
+     // BNE, BGE and BGEU reuse the inverted base results.
+     wire branch_eq          = (branch_op1 == branch_op2);
+     wire branch_lt_signed   = ($signed(branch_op1) < $signed(branch_op2));
+     wire branch_lt_unsigned = (branch_op1 < branch_op2);
+     wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
+     wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
 
-     (* max_fanout = 4 *)wire [31:0] op1_i_add_op2_i = alu_op1 + alu_op2;
-     (* max_fanout = 4 *)wire [31:0] op1_i_and_op2_i = alu_op1 & alu_op2;
-     (* max_fanout = 4 *)wire [31:0] op1_i_xor_op2_i = alu_op1 ^ alu_op2;
-     (* max_fanout = 4 *)wire [31:0] op1_i_or_op2_i  = alu_op1 | alu_op2;
+     wire [31:0] op1_i_add_op2_i = alu_op1 + alu_op2;
+     wire [31:0] op1_i_and_op2_i = alu_op1 & alu_op2;
+     wire [31:0] op1_i_xor_op2_i = alu_op1 ^ alu_op2;
+     wire [31:0] op1_i_or_op2_i  = alu_op1 | alu_op2;
 
-     (* max_fanout = 4 *)wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
-     (* max_fanout = 4 *)wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
-     (* max_fanout = 4 *)wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
+     wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
+     wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
+     wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     (* max_fanout = 4 *)wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
-     (* max_fanout = 4 *)wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
-    (* max_fanout = 4 *)wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
-    (* max_fanout = 4 *)wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
-    (* max_fanout = 4 *)wire [31:0] jalr_target_addr   = {jalr_target_sum[31:1], 1'b0};
-    (* max_fanout = 4 *)wire [31:0] fallthrough_addr   = inst_addr_i + 32'd4;
-    wire is_beq  = (func3 == `INST_BEQ);
-    wire is_bne  = (func3 == `INST_BNE);
-    wire is_blt  = (func3 == `INST_BLT);
-    wire is_bge  = (func3 == `INST_BGE);
-    wire is_bltu = (func3 == `INST_BLTU);
-    wire is_bgeu = (func3 == `INST_BGEU);
-    wire branch_taken_w =
-        (is_beq  && br_eq)             |
-        (is_bne  && ~br_eq)            |
-        (is_blt  && br_less_signed)    |
-        (is_bge  && ~br_less_signed)   |
-        (is_bltu && br_less_unsigned)  |
-        (is_bgeu && ~br_less_unsigned);
+     wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
+     wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
+    wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
+    wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
+    wire [31:0] jalr_target_addr   = {jalr_target_sum[31:1], 1'b0};
+    wire [31:0] fallthrough_addr   = inst_addr_i + 32'd4;
+    reg branch_condition_met;
+
+    always @(*) begin
+        branch_condition_met = 1'b0;
+
+        case (branch_cond_i)
+            `BR_EQ:  branch_condition_met = branch_eq;
+            `BR_NE:  branch_condition_met = ~branch_eq;
+            `BR_LT:  branch_condition_met = branch_lt_signed;
+            `BR_GE:  branch_condition_met = ~branch_lt_signed;
+            `BR_LTU: branch_condition_met = branch_lt_unsigned;
+            `BR_GEU: branch_condition_met = ~branch_lt_unsigned;
+            default: branch_condition_met = 1'b0;
+        endcase
+    end
+
+    wire branch_taken_w = branch_condition_met;
+    wire branch_direction_mismatch_w = (branch_taken_w != pred_taken_i);
+    wire branch_target_mismatch_w =
+        branch_taken_w && pred_taken_i && (pred_target_i != branch_target_addr);
+    // Keep the timing-critical EX-to-PC redirect path local.
+    // Predictor update and pipeline flush logic must preserve the same behavior.
     wire branch_redirect_w =
-        dec_is_branch_i &&
-        ((branch_taken_w != pred_taken_i) ||
-         (branch_taken_w && pred_taken_i &&
-          (pred_target_i != branch_target_addr)));
+        dec_is_branch_i && (branch_direction_mismatch_w || branch_target_mismatch_w);
     wire [31:0] branch_redirect_addr_w =
         branch_taken_w ? branch_target_addr : fallthrough_addr;
+    wire ex_branch_redirect_valid = branch_redirect_w;
+    wire [31:0] ex_branch_redirect_target = branch_redirect_addr_w;
     wire jal_redirect_w =
         dec_is_jal_i &&
         (pred_taken_i == 1'b0);
@@ -137,7 +150,6 @@ module ex (
     reg  [31:0] rv32m_inst_r;
     reg  [4:0]  rv32m_rd_addr_r;
     reg         rv32m_rd_wen_r;
-    reg branch_taken_r;
     // EX only launches the iterative unit once per decoded M instruction.
     // While busy is high, HDU freezes the front of the pipeline and EX emits NOP.
     wire        rv32m_iter_busy_w;
@@ -211,7 +223,6 @@ module ex (
         bp_ras_pop_en_o    = 1'b0;
         bp_ras_push_addr_o = 32'b0;
         bp_actual_taken_o  = 1'b0;
-        branch_taken_r     = 1'b0;
         inst_o             = kill_i ? `INST_NOP : inst_i;
 
         if (rv32m_busy_o == 1'b1) begin
@@ -285,17 +296,15 @@ module ex (
             end
 
             else if (dec_is_branch_i) begin
-                    branch_taken_r = branch_taken_w;
-
                     bp_update_en_o    = 1'b1;
                     bp_update_pc_o    = inst_addr_i;
                     bp_update_target_o = branch_target_addr;
                     bp_update_ghr_o   = pred_ghr_i;
                     bp_actual_taken_o = branch_taken_w;
 
-                    if (branch_redirect_w) begin
+                    if (ex_branch_redirect_valid) begin
                         jump_en_o   = 1'b1;
-                        jump_addr_o = branch_redirect_addr_w;
+                        jump_addr_o = ex_branch_redirect_target;
                     end
             end
 

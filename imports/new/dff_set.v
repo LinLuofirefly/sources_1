@@ -21,12 +21,14 @@ module dff_set
     input  wire [DW-1:0]  data_i,          // 正常流通时的数据输入
     output reg  [DW-1:0]  data_o           // 数据输出
     );
-    (* max_fanout = 8 *) wire internal_flush;
-    (* max_fanout = 8 *) wire internal_hold;
+    // Do not force max_fanout on wide datapath buses.
+    // Excessive register replication can worsen physical routing timing.
+     wire internal_flush;
+     wire internal_hold;
 
     // 将复杂的 || 逻辑提前算出，并死死钉在内部线网上
-    (* max_fanout = 8 *)assign internal_flush = (rst == 1'b0) || (flush_flag_i == 1'b1);
-    (* max_fanout = 8 *)assign internal_hold  = (hold_flag_i == 1'b1);
+    assign internal_flush = (rst == 1'b0) || (flush_flag_i == 1'b1);
+    assign internal_hold  = (hold_flag_i == 1'b1);
 
     always @(posedge clk) begin
         if (internal_flush) begin
