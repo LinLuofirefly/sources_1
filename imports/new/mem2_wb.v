@@ -18,20 +18,20 @@ module mem2_wb (
     input  wire        bp_ras_pop_en_i,
     input  wire [31:0] bp_ras_push_addr_i,
     input  wire        bp_actual_taken_i,
-    output wire [31:0] inst_o,
-    output wire [4:0]  rd_addr_o,
-    output wire [31:0] rd_data_o,
-    output wire        rd_wen_o,
-    output wire [31:0] mem_rd_addr_o,
-    output wire        is_slow_load_o,
-    output wire        bp_update_en_o,
-    output wire [31:0] bp_update_pc_o,
-    output wire [31:0] bp_update_target_o,
-    output wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
-    output wire        bp_ras_push_en_o,
-    output wire        bp_ras_pop_en_o,
-    output wire [31:0] bp_ras_push_addr_o,
-    output wire        bp_actual_taken_o,
+    output reg  [31:0] inst_o,
+    output reg  [4:0]  rd_addr_o,
+    output reg  [31:0] rd_data_o,
+    output reg         rd_wen_o,
+    output reg  [31:0] mem_rd_addr_o,
+    output reg         is_slow_load_o,
+    output reg         bp_update_en_o,
+    output reg  [31:0] bp_update_pc_o,
+    output reg  [31:0] bp_update_target_o,
+    output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
+    output reg         bp_ras_push_en_o,
+    output reg         bp_ras_pop_en_o,
+    output reg  [31:0] bp_ras_push_addr_o,
+    output reg         bp_actual_taken_o,
     (* equivalent_register_removal = "no" *) output reg [4:0]  rd_addr_fwd_o,
     (* equivalent_register_removal = "no" *) output reg [31:0] rd_data_fwd_o,
     (* equivalent_register_removal = "no" *) output reg        rd_wen_fwd_o,
@@ -52,19 +52,38 @@ always @(posedge clk) begin
     end
 end
 
-    dff_set #(5)  dff_rd_addr         (clk, rst, 1'b0, 1'b0, 5'b0,      rd_addr_i,         rd_addr_o);
-    dff_set #(32) dff_rd_data         (clk, rst, 1'b0, 1'b0, 32'b0,     rd_data_i,         rd_data_o);
-    dff_set #(1)  dff_rd_wen          (clk, rst, 1'b0, 1'b0, 1'b0,      rd_wen_i,          rd_wen_o);
-    dff_set #(32) dff_mem_rd_addr     (clk, rst, 1'b0, 1'b0, 32'b0,     mem_rd_addr_i,     mem_rd_addr_o);
-    dff_set #(1)  dff_is_slow_load    (clk, rst, 1'b0, 1'b0, 1'b0,      is_slow_load_i,    is_slow_load_o);
-    dff_set #(32) dff_inst            (clk, rst, 1'b0, 1'b0, `INST_NOP, inst_i,            inst_o);
-    dff_set #(1)  dff_bp_update_en    (clk, rst, 1'b0, 1'b0, 1'b0,      bp_update_en_i,    bp_update_en_o);
-    dff_set #(32) dff_bp_update_pc    (clk, rst, 1'b0, 1'b0, 32'b0,     bp_update_pc_i,    bp_update_pc_o);
-    dff_set #(32) dff_bp_update_target(clk, rst, 1'b0, 1'b0, 32'b0,     bp_update_target_i, bp_update_target_o);
-    dff_set #(`BP_GHR_WIDTH) dff_bp_update_ghr(clk, rst, 1'b0, 1'b0, {`BP_GHR_WIDTH{1'b0}}, bp_update_ghr_i, bp_update_ghr_o);
-    dff_set #(1)  dff_bp_ras_push_en  (clk, rst, 1'b0, 1'b0, 1'b0,      bp_ras_push_en_i,  bp_ras_push_en_o);
-    dff_set #(1)  dff_bp_ras_pop_en   (clk, rst, 1'b0, 1'b0, 1'b0,      bp_ras_pop_en_i,   bp_ras_pop_en_o);
-    dff_set #(32) dff_bp_ras_push_addr(clk, rst, 1'b0, 1'b0, 32'b0,     bp_ras_push_addr_i, bp_ras_push_addr_o);
-    dff_set #(1)  dff_bp_actual_taken (clk, rst, 1'b0, 1'b0, 1'b0,      bp_actual_taken_i, bp_actual_taken_o);
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            inst_o             <= `INST_NOP;
+            rd_addr_o          <= 5'b0;
+            rd_data_o          <= 32'b0;
+            rd_wen_o           <= 1'b0;
+            mem_rd_addr_o      <= 32'b0;
+            is_slow_load_o     <= 1'b0;
+            bp_update_en_o     <= 1'b0;
+            bp_update_pc_o     <= 32'b0;
+            bp_update_target_o <= 32'b0;
+            bp_update_ghr_o    <= {`BP_GHR_WIDTH{1'b0}};
+            bp_ras_push_en_o   <= 1'b0;
+            bp_ras_pop_en_o    <= 1'b0;
+            bp_ras_push_addr_o <= 32'b0;
+            bp_actual_taken_o  <= 1'b0;
+        end else begin
+            inst_o             <= inst_i;
+            rd_addr_o          <= rd_addr_i;
+            rd_data_o          <= rd_data_i;
+            rd_wen_o           <= rd_wen_i;
+            mem_rd_addr_o      <= mem_rd_addr_i;
+            is_slow_load_o     <= is_slow_load_i;
+            bp_update_en_o     <= bp_update_en_i;
+            bp_update_pc_o     <= bp_update_pc_i;
+            bp_update_target_o <= bp_update_target_i;
+            bp_update_ghr_o    <= bp_update_ghr_i;
+            bp_ras_push_en_o   <= bp_ras_push_en_i;
+            bp_ras_pop_en_o    <= bp_ras_pop_en_i;
+            bp_ras_push_addr_o <= bp_ras_push_addr_i;
+            bp_actual_taken_o  <= bp_actual_taken_i;
+        end
+    end
 
 endmodule
