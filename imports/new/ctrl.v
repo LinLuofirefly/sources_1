@@ -9,8 +9,7 @@ module ctrl (
     output wire [31:0] jump_addr_o,
     output wire        kill_ex_o,
     (* max_fanout = 4 *) output wire flush_ifid_o,
-    (* max_fanout = 4 *) output wire flush_idex_o,
-    (* max_fanout = 4 *) output wire flush_flag_o
+    (* max_fanout = 4 *) output wire flush_idex_o
 );
 
     // Delay one cycle to clear the ghost instruction from synchronous IROM.
@@ -30,7 +29,5 @@ module ctrl (
 
     assign flush_ifid_o   = jump_en_d1;
     assign flush_idex_o   = jump_en_d1;
-
-    assign flush_flag_o   = flush_ifid_o;
 
 endmodule

@@ -63,8 +63,8 @@ module id (
     wire system_use_rs1 = (opcode == `INST_SYSTEM) &&
                           ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
     wire is_system      = (opcode == `INST_SYSTEM);
-    wire rd_is_link     = (rd == 5'b1);
-    wire rs1_is_link    = (rs1 == 5'b1);
+    wire rd_is_link     = (rd == 5'b1)||(rd == 5'b00101);
+    wire rs1_is_link    = (rs1 == 5'b1)||(rs1 == 5'b00101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
 
     assign rs1_addr_o = rs1;

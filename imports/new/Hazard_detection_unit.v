@@ -10,6 +10,9 @@ module Hazard_detection_unit (
     input  wire        id_use_rs2_i,
     input wire ex_done_i,
     input  wire [31:0] ex_inst_i,
+    input  wire        ex_load_hits_dram_i,
+    input  wire [2:0]  id_ex_rs1_fwd_sel_i,
+    input  wire [2:0]  id_ex_rs2_fwd_sel_i,
     input  wire [31:0] mem1_inst_i,
     input  wire        mem1_load_cache_hit_i,
     input  wire [31:0] mem2_inst_i,
@@ -18,9 +21,12 @@ module Hazard_detection_unit (
 
     input  wire        ex_busy_i,
 
-    (* max_fanout = 4 *) output reg hold_flag_o,
-    (* max_fanout = 4 *) output reg flush_flag_o
+   output reg hold_flag_o,
+   output reg flush_flag_o,
+   output wire late_load_miss_o
 );
+    localparam [2:0] FWD_LATE_LOAD = 3'd3;
+
     wire [6:0] id_opcode        = id_inst_i[6:0];
     wire [2:0] id_func3         = id_inst_i[14:12];
     wire [6:0] id_func7         = id_inst_i[31:25];
@@ -81,7 +87,8 @@ module Hazard_detection_unit (
 
     wire ex_load_dep =
         (ex_opcode == `INST_TYPE_L) &&
-        ex_dep_match;
+        ex_dep_match &&
+        !ex_load_hits_dram_i;
 
     wire mem1_load_dep =
         (mem1_opcode == `INST_TYPE_L) &&
@@ -93,6 +100,18 @@ module Hazard_detection_unit (
         mem2_is_slow_load_i &&
         (mem2_opcode == `INST_TYPE_L) &&
         mem2_dep_match;
+
+    // A consumer carrying FWD_LATE_LOAD is executing beside its producer in
+    // MEM1.  Cache misses kill that speculative EX result and hold the
+    // consumer for one-cycle replay from MEM2.
+    wire ex_uses_late_load =
+        (id_ex_rs1_fwd_sel_i == FWD_LATE_LOAD) ||
+        (id_ex_rs2_fwd_sel_i == FWD_LATE_LOAD);
+
+    assign late_load_miss_o =
+        ex_uses_late_load &&
+        (mem1_opcode == `INST_TYPE_L) &&
+        !mem1_load_cache_hit_i;
 
     // Cache-hit load-use normally forwards from MEM2. For shift consumers,
     // that creates a MEM2 -> forwarding -> barrel shifter path, so delay only
@@ -127,8 +146,10 @@ module Hazard_detection_unit (
             hold_flag_o = 1'b1;
         end
         if (ex_done_i == 1'b1) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
+            // EX emits the completed M instruction in this cycle.  Let the
+            // waiting instruction replace it instead of inserting a bubble.
+            hold_flag_o  = 1'b0;
+            flush_flag_o = 1'b0;
         end
         if (ex_load_dep) begin
             hold_flag_o  = 1'b1;
@@ -150,7 +171,10 @@ module Hazard_detection_unit (
             flush_flag_o = 1'b1;
         end
 
+        if (late_load_miss_o) begin
+            hold_flag_o  = 1'b1;
+            flush_flag_o = 1'b0;
+        end
 
     end
 endmodule
-

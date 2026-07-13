@@ -10,6 +10,7 @@ module early_forwarding_select (
     input  wire [4:0] ex_rd_addr_i,
     input  wire       ex_rd_wen_i,
     input  wire       ex_is_load_i,
+    input  wire       ex_load_hits_dram_i,
 
     input  wire [4:0] mem1_rd_addr_i,
     input  wire       mem1_rd_wen_i,
@@ -27,6 +28,7 @@ module early_forwarding_select (
     localparam [2:0] FWD_REG       = 3'd0;
     localparam [2:0] FWD_EX_MEM    = 3'd1;
     localparam [2:0] FWD_MEM1_MEM2 = 3'd2;
+    localparam [2:0] FWD_LATE_LOAD = 3'd3;
     localparam [2:0] FWD_MEM_WB    = 3'd4;
 
     wire rs1_forward_allowed = id_use_rs1_i | id_use_base_addr_i;
@@ -46,6 +48,25 @@ module early_forwarding_select (
         ex_rd_wen_i &&
         (ex_rd_addr_i == id_rs2_addr_i) &&
         !ex_is_load_i;
+
+    // A DRAM load reaches MEM1 together with the consumer reaching EX.  Mark
+    // this dependency explicitly so the normal hit can bypass without the
+    // old unconditional load-use bubble.  A miss is replayed by the HDU.
+    wire rs1_match_ex_late_load =
+        rs1_forward_allowed &&
+        (id_rs1_addr_i != 5'b0) &&
+        ex_rd_wen_i &&
+        (ex_rd_addr_i == id_rs1_addr_i) &&
+        ex_is_load_i &&
+        ex_load_hits_dram_i;
+
+    wire rs2_match_ex_late_load =
+        rs2_forward_allowed &&
+        (id_rs2_addr_i != 5'b0) &&
+        ex_rd_wen_i &&
+        (ex_rd_addr_i == id_rs2_addr_i) &&
+        ex_is_load_i &&
+        ex_load_hits_dram_i;
 
     // Current MEM1 becomes MEM1/MEM2, and only cache-hit loads are ready there.
     wire rs1_match_mem1 =
@@ -78,15 +99,17 @@ module early_forwarding_select (
         !mem2_is_slow_load_i;
 
     assign rs1_fwd_sel_o =
-        rs1_match_ex   ? FWD_EX_MEM    :
-        rs1_match_mem1 ? FWD_MEM1_MEM2 :
-        rs1_match_mem2 ? FWD_MEM_WB    :
-                         FWD_REG;
+        rs1_match_ex_late_load ? FWD_LATE_LOAD :
+        rs1_match_ex           ? FWD_EX_MEM    :
+        rs1_match_mem1         ? FWD_MEM1_MEM2 :
+        rs1_match_mem2         ? FWD_MEM_WB    :
+                                 FWD_REG;
 
     assign rs2_fwd_sel_o =
-        rs2_match_ex   ? FWD_EX_MEM    :
-        rs2_match_mem1 ? FWD_MEM1_MEM2 :
-        rs2_match_mem2 ? FWD_MEM_WB    :
-                         FWD_REG;
+        rs2_match_ex_late_load ? FWD_LATE_LOAD :
+        rs2_match_ex           ? FWD_EX_MEM    :
+        rs2_match_mem1         ? FWD_MEM1_MEM2 :
+        rs2_match_mem2         ? FWD_MEM_WB    :
+                                 FWD_REG;
 
 endmodule

@@ -18,6 +18,10 @@ module open_risc_v (
 
     localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
     localparam [31:0] DRAM_ADDR_END   = 32'h8014_0000;
+    localparam [2:0]  FWD_EX_MEM      = 3'd1;
+    localparam [2:0]  FWD_MEM1_MEM2   = 3'd2;
+    localparam [2:0]  FWD_LATE_LOAD   = 3'd3;
+    localparam [2:0]  FWD_MEM_WB      = 3'd4;
 
     wire rst = rst_n;
 
@@ -64,6 +68,42 @@ module open_risc_v (
     // ------------------------------------------------------------------
     wire        hdu_hold_flag_o;
     wire        hdu_flush_flag_o;
+    wire        late_load_miss_o;
+
+    // Do not chain two late-load bypasses.  If the load currently in EX gets
+    // its own base address from the MEM1 late-load path, make its dependent
+    // successor wait one cycle instead of extending cache-hit data through a
+    // second address calculation and back into the frontend hold/redirect
+    // controls.  Independent instructions and a single load-use pair retain
+    // the zero-bubble hit path.
+    wire        ex_load_uses_late_bypass =
+        (id_ex_rs1_fwd_sel_o == FWD_LATE_LOAD);
+
+    // Rebuild the EX load address for next-consumer eligibility from sources
+    // that are already registered at the start of this cycle.  Deliberately
+    // omit FWD_LATE_LOAD: merely ANDing ex_load_hits_dram_o with the selector
+    // would block chaining functionally, but static timing could still trace
+    // the cache-hit data through EX and back into the ID/HDU control cone.
+    wire [31:0] ex_load_nonlate_base =
+        (id_ex_rs1_fwd_sel_o == FWD_EX_MEM)    ? ex_mem_rd_data_o      :
+        (id_ex_rs1_fwd_sel_o == FWD_MEM1_MEM2) ? mem1_mem2_rd_data_o  :
+        (id_ex_rs1_fwd_sel_o == FWD_MEM_WB)    ? mem_wb_rd_data_fwd_o :
+                                                 id_ex_base_addr_o;
+    wire [31:0] ex_load_nonlate_addr =
+        ex_load_nonlate_base + id_ex_mem_offset_o;
+    wire        ex_load_nonlate_hits_dram =
+        (ex_load_nonlate_addr[31:18] == DRAM_ADDR_START[31:18]);
+
+    // A replayed control-flow consumer can leave an already-issued
+    // wrong-path IROM request behind.  Keep the original load-use wait for
+    // branch/JALR until the fetch path has request epochs.
+    wire        ex_load_late_bypass_allowed =
+        id_ex_is_load_o &&
+        ex_load_nonlate_hits_dram &&
+        !ex_load_uses_late_bypass &&
+        !ctrl_kill_ex_o &&
+        !id_dec_is_branch_o &&
+        !id_dec_is_jalr_o;
 
     // ------------------------------------------------------------------
     // IF/ID
@@ -632,6 +672,7 @@ module open_risc_v (
         .ex_rd_addr_i          (id_ex_rd_addr_o),
         .ex_rd_wen_i           (id_ex_reg_wen),
         .ex_is_load_i          (id_ex_is_load_o),
+        .ex_load_hits_dram_i   (ex_load_late_bypass_allowed),
         .mem1_rd_addr_i        (ex_mem_pipe_rd_addr_o),
         .mem1_rd_wen_i         (ex_mem_rd_wen_o),
         .mem1_is_load_i        (ex_mem_is_load_o),
@@ -748,6 +789,9 @@ module open_risc_v (
     // Forwarding
     // ==================================================================
     forwarding forwarding_inst (
+        .clk                      (clk),
+        .rst                      (rst),
+        .late_load_miss_i         (late_load_miss_o),
         .id_ex_op1_i              (id_ex_op1_o),
         .id_ex_op2_i              (id_ex_op2_o),
         .id_ex_cmp_op2_i          (id_ex_cmp_op2_o),
@@ -760,6 +804,9 @@ module open_risc_v (
         .id_ex_rs2_fwd_sel_i      (id_ex_rs2_fwd_sel_o),
         .ex_mem_rd_data_i         (ex_mem_rd_data_o),
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
+        .mem1_load_cache_hit_i    (mem1_load_cache_hit),
+        .mem1_load_rd_data_i      (mem1_rd_data_to_mem2),
+        .mem2_rd_data_i           (mem2_rd_data_o),
         .mem_wb_rd_data_i         (mem_wb_rd_data_fwd_o),
         .fwd_op1_o                (fwd_op1_o),
         .fwd_op2_o                (fwd_op2_o),
@@ -781,6 +828,9 @@ module open_risc_v (
         .id_use_rs1_i         (id_use_rs1_o),
         .id_use_rs2_i         (id_use_rs2_o),
         .ex_inst_i            (id_ex_inst_o),
+        .ex_load_hits_dram_i  (ex_load_late_bypass_allowed),
+        .id_ex_rs1_fwd_sel_i  (id_ex_rs1_fwd_sel_o),
+        .id_ex_rs2_fwd_sel_i  (id_ex_rs2_fwd_sel_o),
         .mem1_inst_i          (ex_mem_inst_o),
         .mem1_load_cache_hit_i(mem1_load_cache_hit),
         .mem2_inst_i          (mem1_mem2_inst_o),
@@ -788,7 +838,8 @@ module open_risc_v (
         .ex_busy_i            (ex_rv32m_busy_o),
         .ex_done_i            (ex_rv32m_done_o),
         .hold_flag_o          (hdu_hold_flag_o),
-        .flush_flag_o         (hdu_flush_flag_o)
+        .flush_flag_o         (hdu_flush_flag_o),
+        .late_load_miss_o     (late_load_miss_o)
     );
 
     // ==================================================================
@@ -810,7 +861,7 @@ module open_risc_v (
         .pred_ghr_i          (id_ex_pred_ghr_o),
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
-        .kill_i              (ctrl_kill_ex_o),
+        .kill_i              (ctrl_kill_ex_o | late_load_miss_o),
         .fwd_ls_base_i       (fwd_ls_base_addr_o),
         .fwd_jalr_base_i     (fwd_jalr_base_addr_o),
         .branch_offset_i     (id_ex_branch_offset_o),
@@ -873,8 +924,7 @@ module open_risc_v (
         .jump_addr_o  (ctrl_jump_addr_o),
         .kill_ex_o    (ctrl_kill_ex_o),
         .flush_ifid_o (ctrl_flush_ifid_o),
-        .flush_idex_o (ctrl_flush_idex_o),
-        .flush_flag_o ()
+        .flush_idex_o (ctrl_flush_idex_o)
     );
 
     // ==================================================================

@@ -111,8 +111,8 @@ module branch_predictor #(
 
     wire btfnt_taken = b_imm[31];
 
-    wire rd_is_link  = (rd == 5'b00001);
-    wire rs1_is_link = (rs1 == 5'b00001);
+    wire rd_is_link  = (rd == 5'b00001)||(rd == 5'b00101);
+    wire rs1_is_link = (rs1 == 5'b00001)||(rs1 == 5'b00101);
 
     wire ras_nonempty = (ras_count_r != {RAS_PTR_WIDTH+1{1'b0}});
     wire [RAS_PTR_WIDTH-1:0] ras_top_idx =

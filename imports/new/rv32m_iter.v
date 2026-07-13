@@ -33,7 +33,6 @@
 // 状态机：
 //   RV32M_IDLE       ：空闲，等待 start_i。
 //   RV32M_PREP       ：锁存操作数后进行指令类型判断和特殊情况快速处理。
-//   RV32M_MUL_ISSUE  ：发起乘法，寄存 DSP 乘积。
 //   RV32M_MUL_WAIT   ：等待乘法结果稳定，并输出低 32 位或高 32 位。
 //   RV32M_DIV        ：两阶段 restoring divider 主循环，每个 quotient bit 用两拍。
 //   RV32M_DIV_FINISH ：除法/取余结果符号修正后输出 done。
@@ -70,7 +69,6 @@ module rv32m_iter (
     // 不直接从 ID/EX 大扇出驱动，从而改善 EX 阶段时序。
     localparam [2:0] RV32M_IDLE       = 3'b000;
     localparam [2:0] RV32M_PREP       = 3'b001;
-    localparam [2:0] RV32M_MUL_ISSUE  = 3'b010;
     localparam [2:0] RV32M_MUL_WAIT   = 3'b011;
     localparam [2:0] RV32M_DIV        = 3'b100;
     localparam [2:0] RV32M_DIV_FINISH = 3'b101;
@@ -92,11 +90,6 @@ module rv32m_iter (
     // 锁存后的原始操作数。
     reg [31:0] op1_raw_r;
     reg [31:0] op2_raw_r;
-
-    // 乘法扩展操作数。
-    // 使用 signed [32:0] 是为了统一处理 signed/unsigned 乘法。
-    reg signed [32:0] mul_op1_ext_r;
-    reg signed [32:0] mul_op2_ext_r;
 
     // 乘法结果寄存器。
     // 33x33 乘法结果需要 66 bit。
@@ -274,8 +267,6 @@ module rv32m_iter (
             iter_count_r            <= 6'b0;
             op1_raw_r               <= 32'b0;
             op2_raw_r               <= 32'b0;
-            mul_op1_ext_r           <= 33'sd0;
-            mul_op2_ext_r           <= 33'sd0;
             mul_product_r           <= 66'sd0;
             div_remainder_r         <= 33'b0;
             div_remainder_shift_r   <= 33'b0;
@@ -320,11 +311,10 @@ module rv32m_iter (
                             result_o <= 32'b0;
                             done_r   <= 1'b1;
                         end else begin
-                            // 锁存扩展后的 33-bit 乘法操作数。
-                            // 下一状态发起 DSP 乘法。
-                            state_r       <= RV32M_MUL_ISSUE;
-                            mul_op1_ext_r <= mul_op1_ext_w;
-                            mul_op2_ext_r <= mul_op2_ext_w;
+                            // 原始操作数已经寄存；在 PREP 直接寄存 DSP
+                            // 结果，跳过原先仅用于发起乘法的控制周期。
+                            state_r       <= RV32M_MUL_WAIT;
+                            mul_product_r <= mul_op1_ext_w * mul_op2_ext_w;
                         end
                     end else if (op2_raw_r == 32'b0) begin
                         // RISC-V 对除零的规定：
@@ -379,16 +369,6 @@ module rv32m_iter (
                         div_phase_r            <= 1'b0;
                         div_result_r           <= 32'b0;
                     end
-                end
-
-                // ------------------------------------------------------------
-                // MUL_ISSUE：发起 33x33 乘法
-                // ------------------------------------------------------------
-                RV32M_MUL_ISSUE: begin
-                    // 将乘法结果打一拍寄存。
-                    // 综合工具通常会将该乘法映射到 DSP。
-                    mul_product_r <= mul_op1_ext_r * mul_op2_ext_r;
-                    state_r       <= RV32M_MUL_WAIT;
                 end
 
                 // ------------------------------------------------------------

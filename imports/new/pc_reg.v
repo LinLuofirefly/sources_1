@@ -9,7 +9,7 @@ module pc_reg (
     // Do not force max_fanout on wide datapath buses.
     // Excessive register replication can worsen physical routing timing.
     // 魔法原语依然保留：严禁 Vivado 动用 CE 引脚
-    (* extract_enable = "no" *) output reg  [31:0] pc_o
+    output reg  [31:0] pc_o
 );
 
     reg [31:0] next_pc;
