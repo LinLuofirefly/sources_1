@@ -23,7 +23,11 @@ module dram_driver(
         .addra  (wr_addr),
         .dina   (perip_wdata),
         .douta  (dram_data),
-        .ena    (perip_wen),
+        // BRAM 端口 A 的实际写入由 WEA 字节写使能逐位决定；
+        // 当 perip_wstrb 为 4'b0000 时 WEA 全 0，不会写入任何字节。
+        // ENA 常开只让端口保持可访问，用于切断数据/地址转发、
+        // 地址计算和 DRAM 译码到 Mem_DRAM ENBWREN 的长组合路径。
+        .ena    (1'b1),
         .wea    (perip_wstrb),
         .clkb   (clk),
         .addrb  (rd_addr),

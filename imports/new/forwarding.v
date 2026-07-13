@@ -9,8 +9,8 @@ module forwarding (
     input  wire [31:0] id_ex_br_op1_i,
     input  wire [31:0] id_ex_br_op2_i,
 
-    input  wire [2:0]  id_ex_rs1_fwd_sel_i,
-    input  wire [2:0]  id_ex_rs2_fwd_sel_i,
+    input  wire [1:0]  id_ex_rs1_fwd_sel_i,
+    input  wire [1:0]  id_ex_rs2_fwd_sel_i,
 
     input  wire [31:0] ex_mem_rd_data_i,
 
@@ -28,13 +28,15 @@ module forwarding (
     output wire [31:0] fwd_br_op2_o
 );
 
-    localparam [2:0] FWD_REG       = 3'd0;
-    localparam [2:0] FWD_EX_MEM    = 3'd1;
-    localparam [2:0] FWD_MEM1_MEM2 = 3'd2;
-    localparam [2:0] FWD_MEM_WB    = 3'd4;
+    // 2位紧凑编码让单bit的4选1转发器只包含4个数据输入和2个选择输入，
+    // 有机会映射进一个LUT6；不要恢复为3位稀疏编码或独热编码。
+    localparam [1:0] FWD_REG       = 2'd0;
+    localparam [1:0] FWD_EX_MEM    = 2'd1;
+    localparam [1:0] FWD_MEM1_MEM2 = 2'd2;
+    localparam [1:0] FWD_MEM_WB    = 2'd3;
 
     function [31:0] select_rs1_fwd_data;
-        input [2:0]  sel_i;
+        input [1:0]  sel_i;
         input [31:0] reg_data_i;
         begin
             case (sel_i)
@@ -47,7 +49,7 @@ module forwarding (
     endfunction
 
     function [31:0] select_rs2_fwd_data;
-        input [2:0]  sel_i;
+        input [1:0]  sel_i;
         input [31:0] reg_data_i;
         begin
             case (sel_i)

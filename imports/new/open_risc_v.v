@@ -85,8 +85,8 @@ module open_risc_v (
     // ------------------------------------------------------------------
     wire [4:0]  id_rs1_addr_o;
     wire [4:0]  id_rs2_addr_o;
-    wire [2:0]  id_rs1_fwd_sel_o;
-    wire [2:0]  id_rs2_fwd_sel_o;
+    wire [1:0]  id_rs1_fwd_sel_o;
+    wire [1:0]  id_rs2_fwd_sel_o;
     wire [31:0] id_inst_o;
     wire [31:0] id_inst_addr_o;
     wire [31:0] id_op1_o;
@@ -149,8 +149,8 @@ module open_risc_v (
     wire [`BP_GHR_WIDTH-1:0] id_ex_pred_ghr_o;
     wire [4:0]  id_ex_rs1_addr_o;
     wire [4:0]  id_ex_rs2_addr_o;
-    wire [2:0]  id_ex_rs1_fwd_sel_o;
-    wire [2:0]  id_ex_rs2_fwd_sel_o;
+    wire [1:0]  id_ex_rs1_fwd_sel_o;
+    wire [1:0]  id_ex_rs2_fwd_sel_o;
     wire        id_ex_use_rs1_o;
     wire        id_ex_use_rs2_o;
     wire        id_ex_use_base_addr_o;

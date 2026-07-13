@@ -18,8 +18,8 @@ module id_ex (
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
     input  wire [4:0]  rs1_addr_i,
     input  wire [4:0]  rs2_addr_i,
-    input  wire [2:0]  rs1_fwd_sel_i,
-    input  wire [2:0]  rs2_fwd_sel_i,
+    input  wire [1:0]  rs1_fwd_sel_i,
+    input  wire [1:0]  rs2_fwd_sel_i,
     input  wire        use_rs1_i,
     input  wire        use_rs2_i,
     input  wire        use_base_addr_i,
@@ -64,8 +64,8 @@ module id_ex (
     (* extract_enable = "no" *) output reg [`BP_GHR_WIDTH-1:0] pred_ghr_o,
     (* extract_enable = "no" *) output reg [4:0]  rs1_addr_o,
     (* extract_enable = "no" *) output reg [4:0]  rs2_addr_o,
-    (* extract_enable = "no" *) output reg [2:0]  rs1_fwd_sel_o,
-    (* extract_enable = "no" *) output reg [2:0]  rs2_fwd_sel_o,
+    (* extract_enable = "no" *) output reg [1:0]  rs1_fwd_sel_o,
+    (* extract_enable = "no" *) output reg [1:0]  rs2_fwd_sel_o,
     (* extract_enable = "no" *) output reg        use_rs1_o,
     (* extract_enable = "no" *) output reg        use_rs2_o,
     (* extract_enable = "no" *) output reg        use_base_addr_o,
@@ -153,13 +153,13 @@ module id_ex (
         hold_flag_i  ? rs2_addr_o :
                        rs2_addr_i;
 
-    wire [2:0] rs1_fwd_sel_next =
-        flush_flag_i ? 3'b0          :
+    wire [1:0] rs1_fwd_sel_next =
+        flush_flag_i ? 2'b00         :
         hold_flag_i  ? rs1_fwd_sel_o :
                        rs1_fwd_sel_i;
 
-    wire [2:0] rs2_fwd_sel_next =
-        flush_flag_i ? 3'b0          :
+    wire [1:0] rs2_fwd_sel_next =
+        flush_flag_i ? 2'b00         :
         hold_flag_i  ? rs2_fwd_sel_o :
                        rs2_fwd_sel_i;
 
@@ -326,8 +326,8 @@ module id_ex (
             pred_ghr_o      <= {`BP_GHR_WIDTH{1'b0}};
             rs1_addr_o      <= 5'b0;
             rs2_addr_o      <= 5'b0;
-            rs1_fwd_sel_o   <= 3'b0;
-            rs2_fwd_sel_o   <= 3'b0;
+            rs1_fwd_sel_o   <= 2'b00;
+            rs2_fwd_sel_o   <= 2'b00;
             use_rs1_o       <= 1'b0;
             use_rs2_o       <= 1'b0;
             use_base_addr_o <= 1'b0;

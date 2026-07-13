@@ -20,14 +20,16 @@ module early_forwarding_select (
     input  wire       mem2_rd_wen_i,
     input  wire       mem2_is_slow_load_i,
 
-    output wire [2:0] rs1_fwd_sel_o,
-    output wire [2:0] rs2_fwd_sel_o
+    output wire [1:0] rs1_fwd_sel_o,
+    output wire [1:0] rs2_fwd_sel_o
 );
 
-    localparam [2:0] FWD_REG       = 3'd0;
-    localparam [2:0] FWD_EX_MEM    = 3'd1;
-    localparam [2:0] FWD_MEM1_MEM2 = 3'd2;
-    localparam [2:0] FWD_MEM_WB    = 3'd4;
+    // 2位紧凑编码让单bit的4选1转发器只包含4个数据输入和2个选择输入，
+    // 有机会映射进一个LUT6；优先级仍保持 EX/MEM > MEM1/MEM2 > MEM/WB > REG。
+    localparam [1:0] FWD_REG       = 2'd0;
+    localparam [1:0] FWD_EX_MEM    = 2'd1;
+    localparam [1:0] FWD_MEM1_MEM2 = 2'd2;
+    localparam [1:0] FWD_MEM_WB    = 2'd3;
 
     wire rs1_forward_allowed = id_use_rs1_i | id_use_base_addr_i;
     wire rs2_forward_allowed = id_use_rs2_i;
