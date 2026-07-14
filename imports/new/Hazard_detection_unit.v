@@ -85,10 +85,28 @@ module Hazard_detection_unit (
     // Load-use dependency
     // ================================================================
 
+    // 当前 ID 指令如果是移位类指令，不能分配 FWD_LATE_LOAD。
+    // 否则会形成 DCache BRAM -> load 对齐 -> forwarding mux ->
+    // barrel shifter -> EX/MEM1 的长组合路径。这里在 EX load 与当前
+    // ID shift 发生 RAW 相关时，直接走普通 load-use stall/flush 路径。
+    wire id_is_shift_imm =
+        (id_opcode == `INST_TYPE_I) &&
+        (((id_func3 == `INST_SLLI) && (id_func7 == `INST_FUNC7_R)) ||
+         ((id_func3 == `INST_SRI)  &&
+          ((id_func7 == `INST_FUNC7_R) || (id_func7 == `INST_FUNC7_SUB))));
+
+    wire id_is_shift_reg =
+        (id_opcode == `INST_TYPE_R_M) &&
+        (((id_func3 == `INST_SLL) && (id_func7 == `INST_FUNC7_R)) ||
+         ((id_func3 == `INST_SR)  &&
+          ((id_func7 == `INST_FUNC7_R) || (id_func7 == `INST_FUNC7_SUB))));
+
+    wire id_is_shift = id_is_shift_imm || id_is_shift_reg;
+
     wire ex_load_dep =
         (ex_opcode == `INST_TYPE_L) &&
         ex_dep_match &&
-        !ex_load_hits_dram_i;
+        (!ex_load_hits_dram_i || id_is_shift);
 
     wire mem1_load_dep =
         (mem1_opcode == `INST_TYPE_L) &&
@@ -113,31 +131,6 @@ module Hazard_detection_unit (
         (mem1_opcode == `INST_TYPE_L) &&
         !mem1_load_cache_hit_i;
 
-    // Cache-hit load-use normally forwards from MEM2. For shift consumers,
-    // that creates a MEM2 -> forwarding -> barrel shifter path, so delay only
-    // this case by one cycle. Misses stay on the existing miss hold path.
-    wire id_is_shift_imm =
-        (id_opcode == `INST_TYPE_I) &&
-        (((id_func3 == `INST_SLLI) && (id_func7 == `INST_FUNC7_R)) ||
-         ((id_func3 == `INST_SRI)  &&
-          ((id_func7 == `INST_FUNC7_R) || (id_func7 == `INST_FUNC7_SUB))));
-
-    wire id_is_shift_reg =
-        (id_opcode == `INST_TYPE_R_M) &&
-        (((id_func3 == `INST_SLL) && (id_func7 == `INST_FUNC7_R)) ||
-         ((id_func3 == `INST_SR)  &&
-          ((id_func7 == `INST_FUNC7_R) || (id_func7 == `INST_FUNC7_SUB))));
-
-    wire id_is_shift = id_is_shift_imm || id_is_shift_reg;
-
-    wire mem1_load_shift_dep =
-        mem1_load_cache_hit_i &&
-        (mem1_opcode == `INST_TYPE_L) &&
-        id_is_shift &&
-        (mem1_rd != 5'b0) &&
-        (((mem1_rd == id_rs1_addr_i)) ||
-         (id_is_shift_reg && (mem1_rd == id_rs2_addr_i)));
-
     always @(*) begin
         hold_flag_o       = 1'b0;
         flush_flag_o      = 1'b0;
@@ -157,11 +150,6 @@ module Hazard_detection_unit (
         end
 
         if (mem1_load_dep) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
-        end
-
-        if (mem1_load_shift_dep) begin
             hold_flag_o  = 1'b1;
             flush_flag_o = 1'b1;
         end

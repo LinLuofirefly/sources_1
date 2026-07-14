@@ -157,7 +157,12 @@ module ex (
     wire        rv32m_iter_busy_w;
     wire        rv32m_iter_done_w;
     wire [31:0] rv32m_result_w;
-    wire rv32m_start = (kill_i == 1'b0) && dec_is_rv32m_i && (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0);
+    wire rv32m_start_slot =
+        dec_is_rv32m_i &&
+        (rv32m_iter_busy_w == 1'b0) &&
+        (rv32m_iter_done_w == 1'b0);
+    wire rv32m_start = (kill_i == 1'b0) && rv32m_start_slot;
+    wire rv32m_hide_ex = rv32m_start_slot || rv32m_iter_busy_w;
 
     rv32m_iter rv32m_iter_inst (
         .clk    (clk),
@@ -227,7 +232,7 @@ module ex (
         bp_actual_taken_o  = 1'b0;
         inst_o             = kill_i ? `INST_NOP : inst_i;
 
-        if (rv32m_busy_o == 1'b1) begin
+        if (rv32m_hide_ex == 1'b1) begin
             // Hide the in-flight M instruction from later stages until the
             // iterative unit produces a single-cycle done pulse.
             inst_o = `INST_NOP;
@@ -236,7 +241,7 @@ module ex (
             rd_data_o = rv32m_result_w;
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
-        end else if (kill_i == 1'b0) begin
+        end else begin
             if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
@@ -410,6 +415,37 @@ module ex (
                     rd_wen_o  = 1'b0;
             end
         end
+
+        // Kill only the architectural side effects.  Keep rd_data_o as the
+        // decoded datapath result so late_load_miss/kill_i does not select
+        // the 32-bit ALU result bus.  A killed EX/MEM entry is harmless
+        // because all downstream forwarding and writeback selection is
+        // qualified by rd_wen_o, and memory/redirect requests are qualified
+        // by their enable bits.
+        if (kill_i == 1'b1) begin
+            rd_wen_o         = 1'b0;
+            mem_wd_reg_o     = 4'b0000;
+            jump_en_o        = 1'b0;
+            is_load_o        = 1'b0;
+            load_hits_dram_o = 1'b0;
+            bp_update_en_o   = 1'b0;
+            bp_ras_push_en_o = 1'b0;
+            bp_ras_pop_en_o  = 1'b0;
+            inst_o           = `INST_NOP;
+        end
     end
+
+`ifndef SYNTHESIS
+    always @(*) begin
+        if (kill_i == 1'b1) begin
+            if (rd_wen_o !== 1'b0)         $error("EX kill_i asserted with rd_wen_o high");
+            if (mem_wd_reg_o !== 4'b0000) $error("EX kill_i asserted with store write strobe high");
+            if (jump_en_o !== 1'b0)       $error("EX kill_i asserted with jump_en_o high");
+            if (is_load_o !== 1'b0)       $error("EX kill_i asserted with is_load_o high");
+            if (bp_update_en_o !== 1'b0)  $error("EX kill_i asserted with bp_update_en_o high");
+            if (inst_o !== `INST_NOP)     $error("EX kill_i asserted without NOP inst_o");
+        end
+    end
+`endif
 
 endmodule

@@ -22,10 +22,15 @@ module mem2 (
 
     wire [2:0] func3 = inst_i[14:12];
 
-    wire fwd_b0 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[0];
-    wire fwd_b1 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[1];
-    wire fwd_b2 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[2];
-    wire fwd_b3 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[3];
+    // 将 valid 局部编码进字节写掩码，后续 4 条 byte mux 只使用本地掩码位。
+    // 上游 MEM1/MEM2 已经为 MEM2 路径提供独立 valid 寄存副本。
+    wire [3:0] store_load_fwd_wstrb_eff =
+        store_load_fwd_valid_i ? store_load_fwd_wstrb_i : 4'b0000;
+
+    wire fwd_b0 = store_load_fwd_wstrb_eff[0];
+    wire fwd_b1 = store_load_fwd_wstrb_eff[1];
+    wire fwd_b2 = store_load_fwd_wstrb_eff[2];
+    wire fwd_b3 = store_load_fwd_wstrb_eff[3];
 
     wire [7:0] load_byte0 = fwd_b0 ? store_load_fwd_data_i[7:0]   : mem_rd_data_i[7:0];
     wire [7:0] load_byte1 = fwd_b1 ? store_load_fwd_data_i[15:8]  : mem_rd_data_i[15:8];

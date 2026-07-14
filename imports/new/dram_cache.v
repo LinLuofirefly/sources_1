@@ -113,7 +113,7 @@ module dram_cache #(
     wire [TAG_BITS-1:0]   refill_tag = mem2_load_addr_i[31:INDEX_BITS+2];
     wire [3:0] refill_wstrb =
         mem2_store_load_fwd_valid_i ? mem2_store_load_fwd_wstrb_i : 4'b0000;
-    wire [31:0] refill_word =
+    wire [31:0] refill_word_after_old_store =
         merge_store_word(mem2_ram_data_i, mem2_store_load_fwd_data_i, refill_wstrb);
     wire refill_req =
         mem2_is_load_i &&
@@ -135,6 +135,21 @@ module dram_cache #(
     wire refill_store_same_idx =
         refill_req &&
         (refill_idx == store_idx);
+    wire refill_store_same_line =
+        refill_store_same_idx &&
+        store_req &&
+        (refill_tag == store_tag);
+    wire [3:0] refill_store_wstrb =
+        refill_store_same_line ? store_wstrb_i : 4'b0000;
+    // refill 与当前 MEM1 store 命中同一 cache line 时，不能简单屏蔽
+    // store 对 data_array 的更新。外部 DRAM 已经接收该 store，如果 cache
+    // 只写入旧 refill 数据，后续命中 load 会读到回退值。合并顺序为：
+    // 1) 先把更早的 store->load forwarding 数据合入 refill word；
+    // 2) 再用当前 MEM1 store 的字节写使能覆盖同一 line 的对应字节。
+    // 同 index 但 tag 不同表示 refill 将替换另一条 line，当前 store 只
+    // 更新外部 DRAM，不允许污染本次 refill 的 cache line。
+    wire [31:0] refill_word =
+        merge_store_word(refill_word_after_old_store, store_data_i, refill_store_wstrb);
     wire data_write_refill = refill_req;
     wire data_write_store_hit = store_hit && !refill_store_same_idx;
 
@@ -191,8 +206,12 @@ module dram_cache #(
     wire [31:0] mem1_cache_load_data =
         align_load_word(mem1_inst_i, mem1_load_addr_i, mem1_cache_word);
 
-    assign mem1_rd_data_o =
-        mem1_load_cache_hit_o ? mem1_cache_load_data : mem1_uncached_rd_data_i;
+    // late-load 首次执行无条件使用当前 DCache data array 的读出数据。
+    // cache miss 时该数据可能无效，但消费者会被 late_load_miss kill，
+    // 正式 miss 数据仍在 MEM2 由 load_cache_hit_i 选择外部 RAM 返回值。
+    // 因此 mem1_load_cache_hit_o 只保留为有效性/miss 控制信号，不再进入
+    // MEM1 -> late-load forwarding -> EX ALU 的 32 位数据选择锥。
+    assign mem1_rd_data_o = mem1_cache_load_data;
 
 endmodule
 `endif

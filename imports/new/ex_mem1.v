@@ -32,6 +32,8 @@ module ex_mem1 (
     output reg         is_load_o,
     output reg         load_hits_dram_o,
     output reg         store_load_fwd_valid_o,
+    output reg         store_load_fwd_valid_cache_o,
+    output reg         store_load_fwd_valid_pipe_o,
     output reg  [3:0]  store_load_fwd_wstrb_o,
     output reg  [31:0] store_load_fwd_data_o,
     output reg         bp_update_en_o,
@@ -54,6 +56,8 @@ module ex_mem1 (
             is_load_o              <= 1'b0;
             load_hits_dram_o       <= 1'b0;
             store_load_fwd_valid_o <= 1'b0;
+            store_load_fwd_valid_cache_o <= 1'b0;
+            store_load_fwd_valid_pipe_o  <= 1'b0;
             store_load_fwd_wstrb_o <= 4'b0;
             store_load_fwd_data_o  <= 32'b0;
             bp_update_en_o         <= 1'b0;
@@ -73,6 +77,11 @@ module ex_mem1 (
             is_load_o              <= is_load_i;
             load_hits_dram_o       <= load_hits_dram_i;
             store_load_fwd_valid_o <= store_load_fwd_valid_i;
+            // 同一流水级内复制 store-load forwarding valid。
+            // cache 副本只驱动 DCache MEM1 合并路径，pipe 副本只送往
+            // MEM1/MEM2 寄存器，避免单个 valid flop 同时驱动多条远端数据路径。
+            store_load_fwd_valid_cache_o <= store_load_fwd_valid_i;
+            store_load_fwd_valid_pipe_o  <= store_load_fwd_valid_i;
             store_load_fwd_wstrb_o <= store_load_fwd_wstrb_i;
             store_load_fwd_data_o  <= store_load_fwd_data_i;
             bp_update_en_o         <= bp_update_en_i;

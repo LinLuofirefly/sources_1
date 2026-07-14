@@ -31,6 +31,8 @@ module mem1_mem2 (
     output reg         load_hits_dram_o,
     output reg         load_cache_hit_o,
     output reg         store_load_fwd_valid_o,
+    output reg         store_load_fwd_valid_cache_o,
+    output reg         store_load_fwd_valid_mem2_o,
     output reg  [3:0]  store_load_fwd_wstrb_o,
     output reg  [31:0] store_load_fwd_data_o,
     output reg         bp_update_en_o,
@@ -51,6 +53,8 @@ module mem1_mem2 (
             load_hits_dram_o       <= 1'b0;
             load_cache_hit_o       <= 1'b0;
             store_load_fwd_valid_o <= 1'b0;
+            store_load_fwd_valid_cache_o <= 1'b0;
+            store_load_fwd_valid_mem2_o  <= 1'b0;
             store_load_fwd_wstrb_o <= 4'b0;
             store_load_fwd_data_o  <= 32'b0;
             bp_update_en_o         <= 1'b0;
@@ -68,6 +72,10 @@ module mem1_mem2 (
             load_hits_dram_o       <= load_hits_dram_i;
             load_cache_hit_o       <= load_cache_hit_i;
             store_load_fwd_valid_o <= store_load_fwd_valid_i;
+            // 同拍复制 valid：cache 副本只用于 DCache refill 合并，
+            // mem2 副本只用于 MEM2 非命中/非缓存读数据合并，降低单点扇出。
+            store_load_fwd_valid_cache_o <= store_load_fwd_valid_i;
+            store_load_fwd_valid_mem2_o  <= store_load_fwd_valid_i;
             store_load_fwd_wstrb_o <= store_load_fwd_wstrb_i;
             store_load_fwd_data_o  <= store_load_fwd_data_i;
             bp_update_en_o         <= bp_update_en_i;

@@ -257,6 +257,8 @@ module open_risc_v (
     wire [31:0] ex_mem_inst_o;
     wire [31:0] ex_mem_mem_rd_addr_o;
     wire        ex_mem_store_load_fwd_valid_o;
+    wire        ex_mem_store_load_fwd_valid_cache_o;
+    wire        ex_mem_store_load_fwd_valid_pipe_o;
     wire [3:0]  ex_mem_store_load_fwd_wstrb_o;
     wire [31:0] ex_mem_store_load_fwd_data_o;
 
@@ -282,6 +284,8 @@ module open_risc_v (
     wire        mem1_mem2_load_hits_dram_o;
     wire        mem1_mem2_load_cache_hit_o;
     wire        mem1_mem2_store_load_fwd_valid_o;
+    wire        mem1_mem2_store_load_fwd_valid_cache_o;
+    wire        mem1_mem2_store_load_fwd_valid_mem2_o;
     wire [3:0]  mem1_mem2_store_load_fwd_wstrb_o;
     wire [31:0] mem1_mem2_store_load_fwd_data_o;
 
@@ -305,16 +309,33 @@ module open_risc_v (
     wire [31:0] mem_wb_inst_o;
     wire [31:0] mem_wb_rd_data_fwd_o;
 
+    wire id_dec_is_shift_imm =
+        id_dec_is_op_imm_o &&
+        (((id_dec_func3_o == `INST_SLLI) && id_dec_func7_is_r_o) ||
+         ((id_dec_func3_o == `INST_SRI) &&
+          (id_dec_func7_is_r_o || id_dec_func7_is_sub_o)));
+
+    wire id_dec_is_shift_reg =
+        id_dec_is_op_reg_o &&
+        (((id_dec_func3_o == `INST_SLL) && id_dec_func7_is_r_o) ||
+         ((id_dec_func3_o == `INST_SR) &&
+          (id_dec_func7_is_r_o || id_dec_func7_is_sub_o)));
+
+    wire id_dec_is_shift = id_dec_is_shift_imm || id_dec_is_shift_reg;
+
     // The EX load address is now physically driven by a non-late forwarding
     // mux.  Ordinary ALU/store consumers retain the hit bypass; a dependent
     // load waits for a registered result to avoid cache-hit -> address chains.
+    // 当前 ID 指令为 shift 时也禁止 late-load：否则命中数据会直接进入
+    // 桶形移位器，形成 DCache 输出到 EX/MEM1 寄存器的长组合路径。
     wire        ex_load_late_bypass_allowed =
         id_ex_is_load_o &&
         ex_load_hits_dram_o &&
         !ctrl_kill_ex_o &&
         !id_dec_is_branch_o &&
         !id_dec_is_jalr_o &&
-        !id_dec_is_load_o;
+        !id_dec_is_load_o &&
+        !id_dec_is_shift;
 
     assign mem_rd_reg_o  = ex_is_load_o;
     assign mem_rd_addr_o = ex_rd_mem_addr_o;
@@ -335,6 +356,8 @@ module open_risc_v (
 
     wire        mem1_load_cache_hit;
     wire [31:0] mem1_rd_data_to_mem2;
+    wire [31:0] mem1_pipe_rd_data =
+        mem_out_is_load_o ? mem1_rd_data_to_mem2 : mem_out_rd_data_o;
 
     dram_cache #(
         .DRAM_ADDR_START(DRAM_ADDR_START),
@@ -349,7 +372,7 @@ module open_risc_v (
         .mem1_inst_i                 (ex_mem_inst_o),
         .mem1_load_addr_i            (ex_mem_mem_rd_addr_o),
         .mem1_uncached_rd_data_i     (mem_out_rd_data_o),
-        .mem1_store_load_fwd_valid_i (ex_mem_store_load_fwd_valid_o),
+        .mem1_store_load_fwd_valid_i (ex_mem_store_load_fwd_valid_cache_o),
         .mem1_store_load_fwd_wstrb_i (ex_mem_store_load_fwd_wstrb_o),
         .mem1_store_load_fwd_data_i  (ex_mem_store_load_fwd_data_o),
         .mem2_is_load_i              (mem1_mem2_is_load_o),
@@ -357,7 +380,7 @@ module open_risc_v (
         .mem2_load_cache_hit_i       (mem1_mem2_load_cache_hit_o),
         .mem2_load_addr_i            (mem1_mem2_mem_rd_addr_o),
         .mem2_ram_data_i             (ram_data_i),
-        .mem2_store_load_fwd_valid_i (mem1_mem2_store_load_fwd_valid_o),
+        .mem2_store_load_fwd_valid_i (mem1_mem2_store_load_fwd_valid_cache_o),
         .mem2_store_load_fwd_wstrb_i (mem1_mem2_store_load_fwd_wstrb_o),
         .mem2_store_load_fwd_data_i  (mem1_mem2_store_load_fwd_data_o),
         .store_wstrb_i               (w_en),
@@ -754,7 +777,6 @@ module open_risc_v (
         .id_ex_rs2_fwd_sel_i      (id_ex_rs2_fwd_sel_o),
         .ex_mem_rd_data_i         (ex_mem_rd_data_o),
         .mem1_mem2_rd_data_i      (mem1_mem2_rd_data_o),
-        .mem1_load_cache_hit_i    (mem1_load_cache_hit),
         .mem1_load_rd_data_i      (mem1_rd_data_to_mem2),
         .mem2_rd_data_i           (mem2_rd_data_o),
         .mem_wb_rd_data_i         (mem_wb_rd_data_fwd_o),
@@ -913,6 +935,8 @@ module open_risc_v (
         .is_load_o         (ex_mem_is_load_o),
         .load_hits_dram_o  (ex_mem_load_hits_dram_o),
         .store_load_fwd_valid_o(ex_mem_store_load_fwd_valid_o),
+        .store_load_fwd_valid_cache_o(ex_mem_store_load_fwd_valid_cache_o),
+        .store_load_fwd_valid_pipe_o (ex_mem_store_load_fwd_valid_pipe_o),
         .store_load_fwd_wstrb_o(ex_mem_store_load_fwd_wstrb_o),
         .store_load_fwd_data_o (ex_mem_store_load_fwd_data_o),
         .bp_update_en_o    (ex_mem_bp_update_en_o),
@@ -955,13 +979,13 @@ module open_risc_v (
         .rst               (rst),
         .inst_i            (mem_inst_o),
         .rd_addr_i         (mem_out_rd_addr_o),
-        .rd_data_i         (mem1_rd_data_to_mem2),
+        .rd_data_i         (mem1_pipe_rd_data),
         .rd_wen_i          (mem_out_rd_wen_o),
         .mem_rd_addr_i     (mem_out_mem_rd_addr_o),
         .is_load_i         (mem_out_is_load_o),
         .load_hits_dram_i  (ex_mem_load_hits_dram_o),
         .load_cache_hit_i  (mem1_load_cache_hit),
-        .store_load_fwd_valid_i(ex_mem_store_load_fwd_valid_o),
+        .store_load_fwd_valid_i(ex_mem_store_load_fwd_valid_pipe_o),
         .store_load_fwd_wstrb_i(ex_mem_store_load_fwd_wstrb_o),
         .store_load_fwd_data_i (ex_mem_store_load_fwd_data_o),
         .bp_update_en_i    (ex_mem_bp_update_en_o),
@@ -977,6 +1001,8 @@ module open_risc_v (
         .load_hits_dram_o  (mem1_mem2_load_hits_dram_o),
         .load_cache_hit_o  (mem1_mem2_load_cache_hit_o),
         .store_load_fwd_valid_o(mem1_mem2_store_load_fwd_valid_o),
+        .store_load_fwd_valid_cache_o(mem1_mem2_store_load_fwd_valid_cache_o),
+        .store_load_fwd_valid_mem2_o (mem1_mem2_store_load_fwd_valid_mem2_o),
         .store_load_fwd_wstrb_o(mem1_mem2_store_load_fwd_wstrb_o),
         .store_load_fwd_data_o (mem1_mem2_store_load_fwd_data_o),
         .bp_update_en_o    (mem1_mem2_bp_update_en_o),
@@ -999,7 +1025,7 @@ module open_risc_v (
         .is_load_i     (mem1_mem2_is_load_o),
         .load_cache_hit_i(mem1_mem2_load_cache_hit_o),
         .mem_rd_data_i (ram_data_i),
-        .store_load_fwd_valid_i(mem1_mem2_store_load_fwd_valid_o),
+        .store_load_fwd_valid_i(mem1_mem2_store_load_fwd_valid_mem2_o),
         .store_load_fwd_wstrb_i(mem1_mem2_store_load_fwd_wstrb_o),
         .store_load_fwd_data_i (mem1_mem2_store_load_fwd_data_o),
         .rd_addr_o     (mem2_rd_addr_o),

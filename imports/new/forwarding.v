@@ -16,7 +16,6 @@ module forwarding (
     input  wire [31:0] ex_mem_rd_data_i,
 
     input  wire [31:0] mem1_mem2_rd_data_i,
-    input  wire        mem1_load_cache_hit_i,
     input  wire [31:0] mem1_load_rd_data_i,
     input  wire [31:0] mem2_rd_data_i,
 
@@ -39,14 +38,16 @@ module forwarding (
     localparam [2:0] FWD_LATE_LOAD = 3'd3;
     localparam [2:0] FWD_MEM_WB    = 3'd4;
 
-    // On a hit the load is currently in MEM1.  After a miss replay the same
-    // selector is held in ID/EX, while the completed load has moved to MEM2.
-    wire [31:0] late_load_data =
-        mem1_load_cache_hit_i ? mem1_load_rd_data_i : mem2_rd_data_i;
-
     reg         late_load_replay_r;
     reg  [31:0] replay_rs1_data_r;
     reg  [31:0] replay_rs2_data_r;
+
+    // late-load 首次执行时一律选择 MEM1 对齐后的数据，cache miss 的错误
+    // EX 结果由 late_load_miss_i 杀掉；下一拍 replay 时使用已寄存的
+    // late_load_replay_r 选择 MEM2 数据。这样 DCache tag compare 产生的
+    // mem1_load_cache_hit 不再进入 late-load -> EX 数据选择锥。
+    wire [31:0] late_load_data =
+        late_load_replay_r ? mem2_rd_data_i : mem1_load_rd_data_i;
 
     function [31:0] select_fwd_data;
         input [2:0]  sel_i;
