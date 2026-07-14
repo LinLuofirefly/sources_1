@@ -19,9 +19,6 @@ module mem1_mem2 (
     input  wire [31:0] bp_update_pc_i,
     input  wire [31:0] bp_update_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] bp_update_ghr_i,
-    input  wire        bp_ras_push_en_i,
-    input  wire        bp_ras_pop_en_i,
-    input  wire [31:0] bp_ras_push_addr_i,
     input  wire        bp_actual_taken_i,
     // Do not force max_fanout on wide datapath buses.
     // Excessive register replication can worsen physical routing timing.
@@ -40,9 +37,6 @@ module mem1_mem2 (
     output reg  [31:0] bp_update_pc_o,
     output reg  [31:0] bp_update_target_o,
     output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
-    output reg         bp_ras_push_en_o,
-    output reg         bp_ras_pop_en_o,
-    output reg  [31:0] bp_ras_push_addr_o,
     output reg         bp_actual_taken_o
 );
 
@@ -63,9 +57,6 @@ module mem1_mem2 (
             bp_update_pc_o         <= 32'b0;
             bp_update_target_o     <= 32'b0;
             bp_update_ghr_o        <= {`BP_GHR_WIDTH{1'b0}};
-            bp_ras_push_en_o       <= 1'b0;
-            bp_ras_pop_en_o        <= 1'b0;
-            bp_ras_push_addr_o     <= 32'b0;
             bp_actual_taken_o      <= 1'b0;
         end else begin
             inst_o                 <= inst_i;
@@ -83,9 +74,6 @@ module mem1_mem2 (
             bp_update_pc_o         <= bp_update_pc_i;
             bp_update_target_o     <= bp_update_target_i;
             bp_update_ghr_o        <= bp_update_ghr_i;
-            bp_ras_push_en_o       <= bp_ras_push_en_i;
-            bp_ras_pop_en_o        <= bp_ras_pop_en_i;
-            bp_ras_push_addr_o     <= bp_ras_push_addr_i;
             bp_actual_taken_o      <= bp_actual_taken_i;
         end
     end

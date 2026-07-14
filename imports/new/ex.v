@@ -30,7 +30,8 @@ module ex (
 
     output reg  [31:0] inst_o,
 
-    input  wire [31:0] fwd_ls_base_i,
+    input  wire [31:0] fwd_load_base_i,
+    input  wire [31:0] fwd_store_base_i,
     input  wire [31:0] fwd_jalr_base_i,
     input  wire [31:0] branch_offset_i,
     input  wire [31:0] mem_offset_i,
@@ -102,7 +103,8 @@ module ex (
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
-     wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
+     wire [31:0] load_mem_addr      = fwd_load_base_i + mem_offset_i;
+     wire [31:0] store_mem_addr     = fwd_store_base_i + mem_offset_i;
     wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
     wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
     wire [31:0] jalr_target_addr   = {jalr_target_sum[31:1], 1'b0};
@@ -125,14 +127,14 @@ module ex (
 
     wire branch_taken_w = branch_condition_met;
     wire branch_direction_mismatch_w = (branch_taken_w != pred_taken_i);
-    wire branch_target_mismatch_w =
-        branch_taken_w && pred_taken_i && (pred_target_i != branch_target_addr);
-    // Keep the timing-critical EX-to-PC redirect path local.
-    // Predictor update and pipeline flush logic must preserve the same behavior.
+    // Conditional-branch targets are static for this IROM and BTB entries are
+    // tag-checked.  On a direction miss, the registered prediction already
+    // identifies the correction target, so the late comparison result need
+    // not select the 32-bit PC redirect bus.
     wire branch_redirect_w =
-        dec_is_branch_i && (branch_direction_mismatch_w || branch_target_mismatch_w);
+        dec_is_branch_i && branch_direction_mismatch_w;
     wire [31:0] branch_redirect_addr_w =
-        branch_taken_w ? branch_target_addr : fallthrough_addr;
+        pred_taken_i ? fallthrough_addr : branch_target_addr;
     wire ex_branch_redirect_valid = branch_redirect_w;
     wire [31:0] ex_branch_redirect_target = branch_redirect_addr_w;
     wire jal_redirect_w =
@@ -312,15 +314,15 @@ module ex (
                     is_load_o     = 1'b1;
                     rd_addr_o     = rd_addr_i;
                     rd_wen_o      = rd_wen_i;
-                    mem_rd_addr_o = mem_addr;
-                    load_hits_dram_o = (mem_addr[31:18] == DRAM_REGION_TAG);
+                    mem_rd_addr_o = load_mem_addr;
+                    load_hits_dram_o = (load_mem_addr[31:18] == DRAM_REGION_TAG);
             end
 
             else if (dec_is_store_i) begin
-                    mem_wd_addr_o = mem_addr;
+                    mem_wd_addr_o = store_mem_addr;
                     case (func3)
                         `INST_SB: begin
-                            case (mem_addr[1:0])
+                            case (store_mem_addr[1:0])
                                 2'b00: begin mem_wd_reg_o = 4'b0001; mem_wd_data_o = {24'b0, store_data_i[7:0]}; end
                                 2'b01: begin mem_wd_reg_o = 4'b0010; mem_wd_data_o = {16'b0, store_data_i[7:0], 8'b0}; end
                                 2'b10: begin mem_wd_reg_o = 4'b0100; mem_wd_data_o = {8'b0, store_data_i[7:0], 16'b0}; end
@@ -329,7 +331,7 @@ module ex (
                             endcase
                         end
                         `INST_SH: begin
-                            case (mem_addr[1])
+                            case (store_mem_addr[1])
                                 1'b0: begin mem_wd_reg_o = 4'b0011; mem_wd_data_o = {16'b0, store_data_i[15:0]}; end
                                 1'b1: begin mem_wd_reg_o = 4'b1100; mem_wd_data_o = {store_data_i[15:0], 16'b0}; end
                                 default: begin mem_wd_reg_o = 4'b0000; mem_wd_data_o = 32'b0; end

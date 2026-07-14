@@ -18,10 +18,6 @@ module open_risc_v (
 
     localparam [31:0] DRAM_ADDR_START = 32'h8010_0000;
     localparam [31:0] DRAM_ADDR_END   = 32'h8014_0000;
-    localparam [2:0]  FWD_EX_MEM      = 3'd1;
-    localparam [2:0]  FWD_MEM1_MEM2   = 3'd2;
-    localparam [2:0]  FWD_LATE_LOAD   = 3'd3;
-    localparam [2:0]  FWD_MEM_WB      = 3'd4;
 
     wire rst = rst_n;
 
@@ -38,14 +34,12 @@ module open_risc_v (
     // Branch predictor / fetch side
     // ------------------------------------------------------------------
     wire        bp_pred_taken_o;
-    wire        bp_pred_taken_accepted_o;
     wire [31:0] bp_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] bp_pred_ghr_o;
 
     wire        bp_req_btb_hit_o;
     wire        bp_req_pred_taken_o;
     wire [31:0] bp_req_pred_target_o;
-    wire [`BP_GHR_WIDTH-1:0] bp_req_pred_ghr_o;
     reg         bp_early_hit_r;
     reg         bp_early_pred_taken_r;
     reg  [31:0] bp_early_pred_target_r;
@@ -69,41 +63,6 @@ module open_risc_v (
     wire        hdu_hold_flag_o;
     wire        hdu_flush_flag_o;
     wire        late_load_miss_o;
-
-    // Do not chain two late-load bypasses.  If the load currently in EX gets
-    // its own base address from the MEM1 late-load path, make its dependent
-    // successor wait one cycle instead of extending cache-hit data through a
-    // second address calculation and back into the frontend hold/redirect
-    // controls.  Independent instructions and a single load-use pair retain
-    // the zero-bubble hit path.
-    wire        ex_load_uses_late_bypass =
-        (id_ex_rs1_fwd_sel_o == FWD_LATE_LOAD);
-
-    // Rebuild the EX load address for next-consumer eligibility from sources
-    // that are already registered at the start of this cycle.  Deliberately
-    // omit FWD_LATE_LOAD: merely ANDing ex_load_hits_dram_o with the selector
-    // would block chaining functionally, but static timing could still trace
-    // the cache-hit data through EX and back into the ID/HDU control cone.
-    wire [31:0] ex_load_nonlate_base =
-        (id_ex_rs1_fwd_sel_o == FWD_EX_MEM)    ? ex_mem_rd_data_o      :
-        (id_ex_rs1_fwd_sel_o == FWD_MEM1_MEM2) ? mem1_mem2_rd_data_o  :
-        (id_ex_rs1_fwd_sel_o == FWD_MEM_WB)    ? mem_wb_rd_data_fwd_o :
-                                                 id_ex_base_addr_o;
-    wire [31:0] ex_load_nonlate_addr =
-        ex_load_nonlate_base + id_ex_mem_offset_o;
-    wire        ex_load_nonlate_hits_dram =
-        (ex_load_nonlate_addr[31:18] == DRAM_ADDR_START[31:18]);
-
-    // A replayed control-flow consumer can leave an already-issued
-    // wrong-path IROM request behind.  Keep the original load-use wait for
-    // branch/JALR until the fetch path has request epochs.
-    wire        ex_load_late_bypass_allowed =
-        id_ex_is_load_o &&
-        ex_load_nonlate_hits_dram &&
-        !ex_load_uses_late_bypass &&
-        !ctrl_kill_ex_o &&
-        !id_dec_is_branch_o &&
-        !id_dec_is_jalr_o;
 
     // ------------------------------------------------------------------
     // IF/ID
@@ -257,27 +216,18 @@ module open_risc_v (
     wire [31:0] ex_mem_bp_update_pc_o;
     wire [31:0] ex_mem_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] ex_mem_bp_update_ghr_o;
-    wire        ex_mem_bp_ras_push_en_o;
-    wire        ex_mem_bp_ras_pop_en_o;
-    wire [31:0] ex_mem_bp_ras_push_addr_o;
     wire        ex_mem_bp_actual_taken_o;
 
     wire        mem1_mem2_bp_update_en_o;
     wire [31:0] mem1_mem2_bp_update_pc_o;
     wire [31:0] mem1_mem2_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] mem1_mem2_bp_update_ghr_o;
-    wire        mem1_mem2_bp_ras_push_en_o;
-    wire        mem1_mem2_bp_ras_pop_en_o;
-    wire [31:0] mem1_mem2_bp_ras_push_addr_o;
     wire        mem1_mem2_bp_actual_taken_o;
 
     wire        mem_wb_bp_update_en_o;
     wire [31:0] mem_wb_bp_update_pc_o;
     wire [31:0] mem_wb_bp_update_target_o;
     wire [`BP_GHR_WIDTH-1:0] mem_wb_bp_update_ghr_o;
-    wire        mem_wb_bp_ras_push_en_o;
-    wire        mem_wb_bp_ras_pop_en_o;
-    wire [31:0] mem_wb_bp_ras_push_addr_o;
     wire        mem_wb_bp_actual_taken_o;
 
     // ------------------------------------------------------------------
@@ -289,7 +239,8 @@ module open_risc_v (
     wire [31:0] fwd_br_op1_o;
     wire [31:0] fwd_br_op2_o;
     wire [31:0] fwd_store_data_o;
-    wire [31:0] fwd_ls_base_addr_o;
+    wire [31:0] fwd_load_base_addr_o;
+    wire [31:0] fwd_store_base_addr_o;
     wire [31:0] fwd_jalr_base_addr_o;
 
     // ------------------------------------------------------------------
@@ -352,10 +303,18 @@ module open_risc_v (
     wire [31:0] mem_wb_mem_rd_addr_o;
     wire        mem_wb_is_slow_load_o;
     wire [31:0] mem_wb_inst_o;
-    wire [4:0]  mem_wb_rd_addr_fwd_o;
     wire [31:0] mem_wb_rd_data_fwd_o;
-    wire        mem_wb_rd_wen_fwd_o;
-    wire        mem_wb_is_slow_load_fwd_o;
+
+    // The EX load address is now physically driven by a non-late forwarding
+    // mux.  Ordinary ALU/store consumers retain the hit bypass; a dependent
+    // load waits for a registered result to avoid cache-hit -> address chains.
+    wire        ex_load_late_bypass_allowed =
+        id_ex_is_load_o &&
+        ex_load_hits_dram_o &&
+        !ctrl_kill_ex_o &&
+        !id_dec_is_branch_o &&
+        !id_dec_is_jalr_o &&
+        !id_dec_is_load_o;
 
     assign mem_rd_reg_o  = ex_is_load_o;
     assign mem_rd_addr_o = ex_rd_mem_addr_o;
@@ -462,10 +421,6 @@ module open_risc_v (
     assign bp_pc_redirect_target =
         bp_replay_redirect ? if_id_pred_target_o : bp_pred_target_o;
 
-    // Predictor acceptance bookkeeping is generated in parallel.
-    // It must not add logic levels to the timing-critical PC path.
-    assign bp_pred_taken_accepted_o = bp_pc_redirect_valid;
-
     // Request-stage redirect: the target request enters IROM immediately, so
     // unlike the late fallback it must not create bp_pred_flush_d1_r.
     wire bp_early_redirect =
@@ -473,7 +428,6 @@ module open_risc_v (
         ~hdu_hold_flag_o &
         ~ctrl_jump_en_o &
         ~bp_pc_redirect_valid &
-        bp_req_btb_hit_o &
         bp_req_pred_taken_o;
 
     // Select the final PC redirect valid and target in one priority block.
@@ -512,10 +466,10 @@ module open_risc_v (
             bp_early_hit_r           <= bp_req_btb_hit_o;
             bp_early_pred_taken_r    <= bp_req_pred_taken_o;
             bp_early_pred_target_r   <= bp_req_pred_target_o;
-            bp_early_pred_ghr_r      <= bp_req_pred_ghr_o;
+            bp_early_pred_ghr_r      <= bp_pred_ghr_o;
 
             // ?????redirect ??????IROM ??????ghost fetch??
-            bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
+            bp_pred_flush_d1_r       <= bp_pc_redirect_valid;
 
             // replay redirect ??????
             bp_replay_flush_d1_r     <= bp_replay_redirect;
@@ -543,12 +497,11 @@ module open_risc_v (
         .req_btb_hit_o   (bp_req_btb_hit_o),
         .req_pred_taken_o(bp_req_pred_taken_o),
         .req_pred_target_o(bp_req_pred_target_o),
-        .req_pred_ghr_o  (bp_req_pred_ghr_o),
         .pred_taken_o    (bp_pred_taken_o),
         .pred_target_o   (bp_pred_target_o),
         .pred_ghr_o      (bp_pred_ghr_o),
         .update_en_i     (mem_wb_bp_update_en_o),
-        .update_pc_i     (mem_wb_bp_update_pc_o),
+        .update_pc_word_i(mem_wb_bp_update_pc_o[31:2]),
         .update_target_i (mem_wb_bp_update_target_o),
         .update_ghr_i    (mem_wb_bp_update_ghr_o),
         .ras_push_en_i   (bp_ras_push_en_o),
@@ -797,9 +750,6 @@ module open_risc_v (
         .id_ex_cmp_op2_i          (id_ex_cmp_op2_o),
         .id_ex_store_data_i       (id_ex_store_data_o),
         .id_ex_ls_base_addr_i     (id_ex_base_addr_o),
-        .id_ex_jalr_base_addr_i   (id_ex_base_addr_o),
-        .id_ex_br_op1_i           (id_ex_op1_o),
-        .id_ex_br_op2_i           (id_ex_cmp_op2_o),
         .id_ex_rs1_fwd_sel_i      (id_ex_rs1_fwd_sel_o),
         .id_ex_rs2_fwd_sel_i      (id_ex_rs2_fwd_sel_o),
         .ex_mem_rd_data_i         (ex_mem_rd_data_o),
@@ -814,7 +764,8 @@ module open_risc_v (
         .fwd_br_op1_o             (fwd_br_op1_o),
         .fwd_br_op2_o             (fwd_br_op2_o),
         .fwd_store_data_o         (fwd_store_data_o),
-        .fwd_ls_base_addr_o       (fwd_ls_base_addr_o),
+        .fwd_load_base_addr_o     (fwd_load_base_addr_o),
+        .fwd_store_base_addr_o    (fwd_store_base_addr_o),
         .fwd_jalr_base_addr_o     (fwd_jalr_base_addr_o)
     );
 
@@ -862,7 +813,8 @@ module open_risc_v (
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
         .kill_i              (ctrl_kill_ex_o | late_load_miss_o),
-        .fwd_ls_base_i       (fwd_ls_base_addr_o),
+        .fwd_load_base_i     (fwd_load_base_addr_o),
+        .fwd_store_base_i    (fwd_store_base_addr_o),
         .fwd_jalr_base_i     (fwd_jalr_base_addr_o),
         .branch_offset_i     (id_ex_branch_offset_o),
         .mem_offset_i        (id_ex_mem_offset_o),
@@ -950,9 +902,6 @@ module open_risc_v (
         .bp_update_pc_i    (bp_update_pc_o),
         .bp_update_target_i(bp_update_target_o),
         .bp_update_ghr_i   (bp_update_ghr_o),
-        .bp_ras_push_en_i  (bp_ras_push_en_o),
-        .bp_ras_pop_en_i   (bp_ras_pop_en_o),
-        .bp_ras_push_addr_i(bp_ras_push_addr_o),
         .bp_actual_taken_i (bp_actual_taken_o),
         .rd_addr_o         (ex_mem_pipe_rd_addr_o),
         .rd_data_o         (ex_mem_rd_data_o),
@@ -970,9 +919,6 @@ module open_risc_v (
         .bp_update_pc_o    (ex_mem_bp_update_pc_o),
         .bp_update_target_o(ex_mem_bp_update_target_o),
         .bp_update_ghr_o   (ex_mem_bp_update_ghr_o),
-        .bp_ras_push_en_o  (ex_mem_bp_ras_push_en_o),
-        .bp_ras_pop_en_o   (ex_mem_bp_ras_pop_en_o),
-        .bp_ras_push_addr_o(ex_mem_bp_ras_push_addr_o),
         .bp_actual_taken_o (ex_mem_bp_actual_taken_o),
         .inst_o            (ex_mem_inst_o)
     );
@@ -1022,9 +968,6 @@ module open_risc_v (
         .bp_update_pc_i    (ex_mem_bp_update_pc_o),
         .bp_update_target_i(ex_mem_bp_update_target_o),
         .bp_update_ghr_i   (ex_mem_bp_update_ghr_o),
-        .bp_ras_push_en_i  (ex_mem_bp_ras_push_en_o),
-        .bp_ras_pop_en_i   (ex_mem_bp_ras_pop_en_o),
-        .bp_ras_push_addr_i(ex_mem_bp_ras_push_addr_o),
         .bp_actual_taken_i (ex_mem_bp_actual_taken_o),
         .rd_addr_o         (mem1_mem2_rd_addr_o),
         .rd_data_o         (mem1_mem2_rd_data_o),
@@ -1040,9 +983,6 @@ module open_risc_v (
         .bp_update_pc_o    (mem1_mem2_bp_update_pc_o),
         .bp_update_target_o(mem1_mem2_bp_update_target_o),
         .bp_update_ghr_o   (mem1_mem2_bp_update_ghr_o),
-        .bp_ras_push_en_o  (mem1_mem2_bp_ras_push_en_o),
-        .bp_ras_pop_en_o   (mem1_mem2_bp_ras_pop_en_o),
-        .bp_ras_push_addr_o(mem1_mem2_bp_ras_push_addr_o),
         .bp_actual_taken_o (mem1_mem2_bp_actual_taken_o),
         .inst_o            (mem1_mem2_inst_o)
     );
@@ -1084,9 +1024,6 @@ module open_risc_v (
         .bp_update_pc_i    (mem1_mem2_bp_update_pc_o),
         .bp_update_target_i(mem1_mem2_bp_update_target_o),
         .bp_update_ghr_i   (mem1_mem2_bp_update_ghr_o),
-        .bp_ras_push_en_i  (mem1_mem2_bp_ras_push_en_o),
-        .bp_ras_pop_en_i   (mem1_mem2_bp_ras_pop_en_o),
-        .bp_ras_push_addr_i(mem1_mem2_bp_ras_push_addr_o),
         .bp_actual_taken_i (mem1_mem2_bp_actual_taken_o),
         .rd_addr_o         (mem_wb_rd_addr_o),
         .rd_data_o         (mem_wb_rd_data_o),
@@ -1097,15 +1034,9 @@ module open_risc_v (
         .bp_update_pc_o    (mem_wb_bp_update_pc_o),
         .bp_update_target_o(mem_wb_bp_update_target_o),
         .bp_update_ghr_o   (mem_wb_bp_update_ghr_o),
-        .bp_ras_push_en_o  (mem_wb_bp_ras_push_en_o),
-        .bp_ras_pop_en_o   (mem_wb_bp_ras_pop_en_o),
-        .bp_ras_push_addr_o(mem_wb_bp_ras_push_addr_o),
         .bp_actual_taken_o (mem_wb_bp_actual_taken_o),
         .inst_o            (mem_wb_inst_o),
-        .rd_addr_fwd_o      (mem_wb_rd_addr_fwd_o),
-        .rd_data_fwd_o      (mem_wb_rd_data_fwd_o),
-        .rd_wen_fwd_o       (mem_wb_rd_wen_fwd_o),
-        .is_slow_load_fwd_o (mem_wb_is_slow_load_fwd_o)
+        .rd_data_fwd_o      (mem_wb_rd_data_fwd_o)
     );
 
 
