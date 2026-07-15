@@ -1,0 +1,113 @@
+========================================
+Simulation started: Wed Jul 15 16:52:14 2026
+Max cycles:   200000000000
+Log file:     sim/logs/sim.log
+Perf stats:   enabled
+Perf output:  sim/logs/performance_summary.txt
+========================================
+
+[cycle          0] Reset released
+[cycle       1899] LED write #1: 0x00000001 pc=80000808 mem=00e7a023 x10=00000001 x13=00000000 x14=00000001 x15=80200040
+[cycle       2134] SEG write #1: 0x37800000 pc=8000076c mem=00e7a023 x10=00000008 x13=00800000 x14=37000000 x15=80200000
+[cycle       2737] LED write #2: 0x00020001 pc=80000808 mem=00e7a023 x10=00020001 x13=8000045c x14=00020001 x15=80200040
+[cycle  100000000] running...
+[cycle  200000000] running...
+[cycle  300000000] running...
+[cycle  400000000] running...
+[cycle  500000000] running...
+[cycle  550590249] LED write #3: 0x00020101 pc=80000808 mem=00e7a023 x10=00020101 x13=00038b80 x14=00020101 x15=80200040
+[cycle  550590317] LED write #4: 0x00020103 pc=80000808 mem=00e7a023 x10=00020103 x13=00038b80 x14=00020103 x15=80200040
+[cycle  550590385] LED write #5: 0x00020303 pc=80000808 mem=00e7a023 x10=00020303 x13=00038b80 x14=00020303 x15=80200040
+[cycle  550590457] LED write #6: 0x00030303 pc=80000808 mem=00e7a023 x10=00030303 x13=00038b80 x14=00030303 x15=80200040
+[cycle  550590525] LED write #7: 0x01030303 pc=80000808 mem=00e7a023 x10=01030303 x13=00038b80 x14=01030303 x15=80200040
+[cycle  550590593] LED write #8: 0x03030303 pc=80000808 mem=00e7a023 x10=03030303 x13=00038b80 x14=03030303 x15=80200040
+[cycle  550590884] SEG write #2: 0x37803303 pc=800007d0 mem=00e7a023 x10=00003303 x13=37800000 x14=00003303 x15=80200020
+
+========================================
+Simulation finished: Wed Jul 15 16:54:25 2026
+End reason:  LED write >=1 and SEG write >=2 both reached
+Total cycles: 550590884
+Final LED:    0x03030303
+Final SEG:    0xd3f4fd3f
+Final LED write value: 0x03030303
+Final SEG write value: 0x37803303
+Shift load-use stalls: 15808019
+Shift WB commits:       63232060
+Shift FWD_LATE seen:    yes
+========================================
+
+================ CPU Performance Summary ================
+
+Core Performance
+---------------------------------------------------------
+Total cycles:                       550590884
+Retired instructions:               347935122
+CPI:                                   1.5825
+IPC:                                   0.6319
+
+Branch Prediction
+---------------------------------------------------------
+Conditional branches:                 10825828
+Correct predictions:                  10692904
+Wrong predictions:                     132924
+Prediction accuracy:                    98.77%
+Branch recovery cycles:               13
+Branch CPI contribution:               0.0000
+
+BTB
+---------------------------------------------------------
+BTB lookups:                           10825646
+BTB hits:                              10825646
+BTB hit rate:                            100.00%
+Wrong target predictions:              0
+
+DCache
+---------------------------------------------------------
+DCache accesses:                    105294805
+DCache hits:                        5312068
+DCache misses:                         99982737
+DCache hit rate:                        5.04%
+Miss stall cycles:                    20196802
+Average miss penalty:                    0.20
+
+Stall Breakdown
+---------------------------------------------------------
+Frontend wait:                               0    0.00%
+Load-use hazard:                     104997990   19.07%
+Other data hazard:                    12192064    2.21%
+DCache or memory:                            5    0.00%
+Branch recovery:                            13    0.00%
+Multiply/divide:                      52524478    9.54%
+Replay:                                      0    0.00%
+Other:                                       0    0.00%
+
+Flush and Replay
+---------------------------------------------------------
+Total flushes:                         132931
+Branch flushes:                        133291
+Replay events:                          11
+Replay stall cycles:                   0
+
+CPI Breakdown
+---------------------------------------------------------
+Base CPI:                              1.0947
+Frontend wait CPI:                     0.0000
+Data hazard CPI:                       0.3368
+Branch recovery CPI:                   0.0000
+Memory stall CPI:                      0.0000
+Mul/div CPI:                           0.1510
+Replay CPI:                            0.0000
+Other CPI:                             0.0000
+
+Consistency Checks
+---------------------------------------------------------
+[PASS] Cache hit + miss = accesses
+[PASS] Stall reason sum = total stall cycles
+[PASS] CPI component cycle sum = total cycles
+[PASS] Branch correct + wrong = conditional branches
+
+All consistency checks passed.
+
+=========================================================
+
+Performance summary written to: sim/logs/performance_summary.txt

@@ -1,0 +1,124 @@
+========================================
+Simulation started: Wed Jul 15 19:00:54 2026
+Max cycles:   200000000000
+Log file:     sim/logs2/sim.log
+Perf stats:   enabled
+Perf output:  sim/logs2/performance_summary.txt
+========================================
+
+[cycle          0] Reset released
+[cycle       1039] SEG write #1: 0x37000000 pc=80000148 mem=00e7a023 x10=00000037 x13=00000000 x14=00000037 x15=80200020
+[cycle  100000000] running...
+[cycle  200000000] running...
+[cycle  300000000] running...
+[cycle  400000000] running...
+[cycle  500000000] running...
+[cycle  600000000] running...
+[cycle  700000000] running...
+[cycle  800000000] running...
+[cycle  900000000] running...
+[cycle 1000000000] running...
+[cycle 1100000000] running...
+[cycle 1200000000] running...
+[cycle 1300000000] running...
+[cycle 1400000000] running...
+[cycle 1500000000] running...
+[cycle 1600000000] running...
+[cycle 1700000000] running...
+[cycle 1800000000] running...
+[cycle 1900000000] running...
+[cycle 2000000000] running...
+[cycle 2100000000] running...
+[cycle 2200000000] running...
+[cycle 2300000000] running...
+[cycle 2392611136] SEG write #2: 0x37014355 pc=800001ac mem=00e7a023 x10=00014355 x13=37000000 x14=00014355 x15=80200020
+[cycle 2392611191] LED write #1: 0x01221c08 pc=800001e4 mem=00e7a023 x10=01221c08 x13=37000000 x14=01021c08 x15=80200040
+
+========================================
+Simulation finished: Wed Jul 15 19:10:37 2026
+End reason:  LED write >=1 and SEG write >=2 both reached
+Total cycles: 2392611191
+Final LED:    0x00000000
+Final SEG:    0xd0653d6d
+Final LED write value: 0x01221c08
+Final SEG write value: 0x37014355
+Shift load-use stalls: 23183608
+Shift WB commits:       476879309
+Shift FWD_LATE seen:    yes
+========================================
+
+================ CPU Performance Summary ================
+
+Core Performance
+---------------------------------------------------------
+Total cycles:                       2392611191
+Retired instructions:               1244729997
+CPI:                                   1.9222
+IPC:                                   0.5202
+
+Branch Prediction
+---------------------------------------------------------
+Conditional branches:                 394233517
+Correct predictions:                  309189361
+Wrong predictions:                     85044156
+Prediction accuracy:                    78.43%
+Branch recovery cycles:               402
+Branch CPI contribution:               0.0000
+
+BTB
+---------------------------------------------------------
+BTB lookups:                           433098978
+BTB hits:                              433098978
+BTB hit rate:                            100.00%
+Wrong target predictions:              0
+
+DCache
+---------------------------------------------------------
+DCache accesses:                    191601484
+DCache hits:                        20745925
+DCache misses:                         170855559
+DCache hit rate:                        10.83%
+Miss stall cycles:                    17720178
+Average miss penalty:                    0.10
+
+Stall Breakdown
+---------------------------------------------------------
+Frontend wait:                               0    0.00%
+Load-use hazard:                     170841307    7.14%
+Other data hazard:                    12225039    0.51%
+DCache or memory:                      2001204    0.08%
+Branch recovery:                           402    0.00%
+Multiply/divide:                             0    0.00%
+Replay:                                      0    0.00%
+Other:                                       0    0.00%
+
+Flush and Replay
+---------------------------------------------------------
+Total flushes:                         97397233
+Branch flushes:                        72512901
+Replay events:                          13624115
+Replay stall cycles:                   0
+
+CPI Breakdown
+---------------------------------------------------------
+Base CPI:                              1.7735
+Frontend wait CPI:                     0.0000
+Data hazard CPI:                       0.1471
+Branch recovery CPI:                   0.0000
+Memory stall CPI:                      0.0016
+Mul/div CPI:                           0.0000
+Replay CPI:                            0.0000
+Other CPI:                             0.0000
+
+Consistency Checks
+---------------------------------------------------------
+[PASS] Cache hit + miss = accesses
+[PASS] Stall reason sum = total stall cycles
+[PASS] CPI component cycle sum = total cycles
+[PASS] Branch correct + wrong = conditional branches
+
+All consistency checks passed.
+
+=========================================================
+
+Performance summary written to: sim/logs2/performance_summary.txt

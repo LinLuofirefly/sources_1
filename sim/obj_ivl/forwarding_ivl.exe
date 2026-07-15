@@ -1,0 +1,189 @@
+#! /c/Source/iverilog-install/bin/vvp
+:ivl_version "12.0 (devel)" "(s20150603-1539-g2693dd32b)";
+:ivl_delay_selection "TYPICAL";
+:vpi_time_precision - 12;
+:vpi_module "F:\iverilog\iverilog\lib\ivl\system.vpi";
+:vpi_module "F:\iverilog\iverilog\lib\ivl\vhdl_sys.vpi";
+:vpi_module "F:\iverilog\iverilog\lib\ivl\vhdl_textio.vpi";
+:vpi_module "F:\iverilog\iverilog\lib\ivl\v2005_math.vpi";
+:vpi_module "F:\iverilog\iverilog\lib\ivl\va_math.vpi";
+:vpi_module "F:\iverilog\iverilog\lib\ivl\v2009.vpi";
+S_000002f391ae64e0 .scope package, "$unit" "$unit" 2 1;
+ .timescale 0 0;
+S_000002f391ae6670 .scope module, "forwarding" "forwarding" 3 2;
+ .timescale -9 -12;
+    .port_info 0 /INPUT 32 "id_ex_op1_i";
+    .port_info 1 /INPUT 32 "id_ex_op2_i";
+    .port_info 2 /INPUT 32 "id_ex_cmp_op2_i";
+    .port_info 3 /INPUT 32 "id_ex_store_data_i";
+    .port_info 4 /INPUT 32 "id_ex_ls_base_addr_i";
+    .port_info 5 /INPUT 32 "id_ex_jalr_base_addr_i";
+    .port_info 6 /INPUT 32 "id_ex_br_op1_i";
+    .port_info 7 /INPUT 32 "id_ex_br_op2_i";
+    .port_info 8 /INPUT 3 "id_ex_rs1_fwd_sel_i";
+    .port_info 9 /INPUT 3 "id_ex_rs2_fwd_sel_i";
+    .port_info 10 /INPUT 32 "ex_mem_rd_data_i";
+    .port_info 11 /INPUT 32 "mem1_mem2_rd_data_i";
+    .port_info 12 /INPUT 32 "mem2_rd_data_i";
+    .port_info 13 /INPUT 32 "mem_wb_rd_data_i";
+    .port_info 14 /OUTPUT 32 "fwd_op1_o";
+    .port_info 15 /OUTPUT 32 "fwd_op2_o";
+    .port_info 16 /OUTPUT 32 "fwd_cmp_op2_o";
+    .port_info 17 /OUTPUT 32 "fwd_store_data_o";
+    .port_info 18 /OUTPUT 32 "fwd_ls_base_addr_o";
+    .port_info 19 /OUTPUT 32 "fwd_jalr_base_addr_o";
+    .port_info 20 /OUTPUT 32 "fwd_br_op1_o";
+    .port_info 21 /OUTPUT 32 "fwd_br_op2_o";
+P_000002f391b2deb0 .param/l "FWD_EX_MEM" 1 3 34, C4<001>;
+P_000002f391b2dee8 .param/l "FWD_MEM1_MEM2" 1 3 35, C4<010>;
+P_000002f391b2df20 .param/l "FWD_MEM2" 1 3 36, C4<011>;
+P_000002f391b2df58 .param/l "FWD_MEM_WB" 1 3 37, C4<100>;
+P_000002f391b2df90 .param/l "FWD_REG" 1 3 33, C4<000>;
+L_000002f391b93268 .functor BUFT 1, C4<011>, C4<0>, C4<0>, C4<0>;
+v000002f391b2ff80_0 .net/2u *"_ivl_0", 2 0, L_000002f391b93268;  1 drivers
+v000002f391b30840_0 .net *"_ivl_13", 31 0, L_000002f391b92170;  1 drivers
+v000002f391b30520_0 .net *"_ivl_17", 31 0, L_000002f391b92490;  1 drivers
+v000002f391b30660_0 .net *"_ivl_21", 31 0, L_000002f391b916d0;  1 drivers
+v000002f391b303e0_0 .net *"_ivl_25", 31 0, L_000002f391b92f30;  1 drivers
+v000002f391b30020_0 .net *"_ivl_29", 31 0, L_000002f391b91db0;  1 drivers
+v000002f391b30160_0 .net *"_ivl_33", 31 0, L_000002f391b92c10;  1 drivers
+v000002f391b2fd00_0 .net *"_ivl_37", 31 0, L_000002f391b914f0;  1 drivers
+L_000002f391b932b0 .functor BUFT 1, C4<011>, C4<0>, C4<0>, C4<0>;
+v000002f391b305c0_0 .net/2u *"_ivl_4", 2 0, L_000002f391b932b0;  1 drivers
+v000002f391b2fbc0_0 .net *"_ivl_9", 31 0, L_000002f391b91b30;  1 drivers
+o000002f391b43268 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b2fc60_0 .net "ex_mem_rd_data_i", 31 0, o000002f391b43268;  0 drivers
+v000002f391b30340_0 .net "fwd_br_op1_o", 31 0, L_000002f391b91090;  1 drivers
+v000002f391b2fe40_0 .net "fwd_br_op2_o", 31 0, L_000002f391b911d0;  1 drivers
+v000002f391b2fb20_0 .net "fwd_cmp_op2_o", 31 0, L_000002f391b92d50;  1 drivers
+v000002f391b300c0_0 .net "fwd_jalr_base_addr_o", 31 0, L_000002f391b91e50;  1 drivers
+v000002f391b307a0_0 .net "fwd_ls_base_addr_o", 31 0, L_000002f391b91c70;  1 drivers
+v000002f391b30200_0 .net "fwd_op1_o", 31 0, L_000002f391b92e90;  1 drivers
+v000002f391b302a0_0 .net "fwd_op2_o", 31 0, L_000002f391b91130;  1 drivers
+v000002f391b92990_0 .net "fwd_store_data_o", 31 0, L_000002f391b92210;  1 drivers
+o000002f391b43418 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b923f0_0 .net "id_ex_br_op1_i", 31 0, o000002f391b43418;  0 drivers
+o000002f391b43448 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b92cb0_0 .net "id_ex_br_op2_i", 31 0, o000002f391b43448;  0 drivers
+o000002f391b43478 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b91810_0 .net "id_ex_cmp_op2_i", 31 0, o000002f391b43478;  0 drivers
+o000002f391b434a8 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b91310_0 .net "id_ex_jalr_base_addr_i", 31 0, o000002f391b434a8;  0 drivers
+o000002f391b434d8 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b920d0_0 .net "id_ex_ls_base_addr_i", 31 0, o000002f391b434d8;  0 drivers
+o000002f391b43508 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b913b0_0 .net "id_ex_op1_i", 31 0, o000002f391b43508;  0 drivers
+o000002f391b43538 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b92df0_0 .net "id_ex_op2_i", 31 0, o000002f391b43538;  0 drivers
+o000002f391b43568 .functor BUFZ 3, C4<zzz>; HiZ drive
+v000002f391b92a30_0 .net "id_ex_rs1_fwd_sel_i", 2 0, o000002f391b43568;  0 drivers
+o000002f391b43598 .functor BUFZ 3, C4<zzz>; HiZ drive
+v000002f391b91450_0 .net "id_ex_rs2_fwd_sel_i", 2 0, o000002f391b43598;  0 drivers
+o000002f391b435c8 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b92ad0_0 .net "id_ex_store_data_i", 31 0, o000002f391b435c8;  0 drivers
+o000002f391b435f8 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b91590_0 .net "mem1_mem2_rd_data_i", 31 0, o000002f391b435f8;  0 drivers
+o000002f391b43628 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b92350_0 .net "mem2_rd_data_i", 31 0, o000002f391b43628;  0 drivers
+o000002f391b43658 .functor BUFZ 32, C4<zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz>; HiZ drive
+v000002f391b91630_0 .net "mem_wb_rd_data_i", 31 0, o000002f391b43658;  0 drivers
+v000002f391b92850_0 .net "rs1_sel_mem2", 0 0, L_000002f391b91a90;  1 drivers
+v000002f391b92b70_0 .net "rs2_sel_mem2", 0 0, L_000002f391b928f0;  1 drivers
+L_000002f391b91a90 .cmp/eq 3, o000002f391b43568, L_000002f391b93268;
+L_000002f391b928f0 .cmp/eq 3, o000002f391b43598, L_000002f391b932b0;
+L_000002f391b91b30 .ufunc/vec4 TD_forwarding.select_rs1_non_mem2_data, 32, o000002f391b43568, o000002f391b43508 (v000002f391b30980_0, v000002f391b2fa80_0) S_000002f391b30bb0;
+L_000002f391b92e90 .functor MUXZ 32, L_000002f391b91b30, o000002f391b43628, L_000002f391b91a90, C4<>;
+L_000002f391b92170 .ufunc/vec4 TD_forwarding.select_rs1_non_mem2_data, 32, o000002f391b43568, o000002f391b434d8 (v000002f391b30980_0, v000002f391b2fa80_0) S_000002f391b30bb0;
+L_000002f391b91c70 .functor MUXZ 32, L_000002f391b92170, o000002f391b43628, L_000002f391b91a90, C4<>;
+L_000002f391b92490 .ufunc/vec4 TD_forwarding.select_rs1_non_mem2_data, 32, o000002f391b43568, o000002f391b434a8 (v000002f391b30980_0, v000002f391b2fa80_0) S_000002f391b30bb0;
+L_000002f391b91e50 .functor MUXZ 32, L_000002f391b92490, o000002f391b43628, L_000002f391b91a90, C4<>;
+L_000002f391b916d0 .ufunc/vec4 TD_forwarding.select_rs1_non_mem2_data, 32, o000002f391b43568, o000002f391b43418 (v000002f391b30980_0, v000002f391b2fa80_0) S_000002f391b30bb0;
+L_000002f391b91090 .functor MUXZ 32, L_000002f391b916d0, o000002f391b43628, L_000002f391b91a90, C4<>;
+L_000002f391b92f30 .ufunc/vec4 TD_forwarding.select_rs2_non_mem2_data, 32, o000002f391b43598, o000002f391b43538 (v000002f391b2fda0_0, v000002f391b30700_0) S_000002f391b35190;
+L_000002f391b91130 .functor MUXZ 32, L_000002f391b92f30, o000002f391b43628, L_000002f391b928f0, C4<>;
+L_000002f391b91db0 .ufunc/vec4 TD_forwarding.select_rs2_non_mem2_data, 32, o000002f391b43598, o000002f391b43478 (v000002f391b2fda0_0, v000002f391b30700_0) S_000002f391b35190;
+L_000002f391b92d50 .functor MUXZ 32, L_000002f391b91db0, o000002f391b43628, L_000002f391b928f0, C4<>;
+L_000002f391b92c10 .ufunc/vec4 TD_forwarding.select_rs2_non_mem2_data, 32, o000002f391b43598, o000002f391b435c8 (v000002f391b2fda0_0, v000002f391b30700_0) S_000002f391b35190;
+L_000002f391b92210 .functor MUXZ 32, L_000002f391b92c10, o000002f391b43628, L_000002f391b928f0, C4<>;
+L_000002f391b914f0 .ufunc/vec4 TD_forwarding.select_rs2_non_mem2_data, 32, o000002f391b43598, o000002f391b43448 (v000002f391b2fda0_0, v000002f391b30700_0) S_000002f391b35190;
+L_000002f391b911d0 .functor MUXZ 32, L_000002f391b914f0, o000002f391b43628, L_000002f391b928f0, C4<>;
+S_000002f391b30bb0 .scope function.vec4.s32, "select_rs1_non_mem2_data" "select_rs1_non_mem2_data" 3 42, 3 42 0, S_000002f391ae6670;
+ .timescale -9 -12;
+v000002f391b2fa80_0 .var "reg_data_i", 31 0;
+v000002f391b30980_0 .var "sel_i", 2 0;
+; Variable select_rs1_non_mem2_data is vec4 return value of scope S_000002f391b30bb0
+TD_forwarding.select_rs1_non_mem2_data ;
+    %load/vec4 v000002f391b30980_0;
+    %dup/vec4;
+    %pushi/vec4 1, 0, 3;
+    %cmp/u;
+    %jmp/1 T_0.0, 6;
+    %dup/vec4;
+    %pushi/vec4 2, 0, 3;
+    %cmp/u;
+    %jmp/1 T_0.1, 6;
+    %dup/vec4;
+    %pushi/vec4 4, 0, 3;
+    %cmp/u;
+    %jmp/1 T_0.2, 6;
+    %load/vec4 v000002f391b2fa80_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs1_non_mem2_data (store_vec4_to_lval)
+    %jmp T_0.4;
+T_0.0 ;
+    %load/vec4 v000002f391b2fc60_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs1_non_mem2_data (store_vec4_to_lval)
+    %jmp T_0.4;
+T_0.1 ;
+    %load/vec4 v000002f391b91590_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs1_non_mem2_data (store_vec4_to_lval)
+    %jmp T_0.4;
+T_0.2 ;
+    %load/vec4 v000002f391b91630_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs1_non_mem2_data (store_vec4_to_lval)
+    %jmp T_0.4;
+T_0.4 ;
+    %pop/vec4 1;
+    %end;
+S_000002f391b35190 .scope function.vec4.s32, "select_rs2_non_mem2_data" "select_rs2_non_mem2_data" 3 55, 3 55 0, S_000002f391ae6670;
+ .timescale -9 -12;
+v000002f391b30700_0 .var "reg_data_i", 31 0;
+v000002f391b2fda0_0 .var "sel_i", 2 0;
+; Variable select_rs2_non_mem2_data is vec4 return value of scope S_000002f391b35190
+TD_forwarding.select_rs2_non_mem2_data ;
+    %load/vec4 v000002f391b2fda0_0;
+    %dup/vec4;
+    %pushi/vec4 1, 0, 3;
+    %cmp/u;
+    %jmp/1 T_1.5, 6;
+    %dup/vec4;
+    %pushi/vec4 2, 0, 3;
+    %cmp/u;
+    %jmp/1 T_1.6, 6;
+    %dup/vec4;
+    %pushi/vec4 4, 0, 3;
+    %cmp/u;
+    %jmp/1 T_1.7, 6;
+    %load/vec4 v000002f391b30700_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs2_non_mem2_data (store_vec4_to_lval)
+    %jmp T_1.9;
+T_1.5 ;
+    %load/vec4 v000002f391b2fc60_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs2_non_mem2_data (store_vec4_to_lval)
+    %jmp T_1.9;
+T_1.6 ;
+    %load/vec4 v000002f391b91590_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs2_non_mem2_data (store_vec4_to_lval)
+    %jmp T_1.9;
+T_1.7 ;
+    %load/vec4 v000002f391b91630_0;
+    %ret/vec4 0, 0, 32;  Assign to select_rs2_non_mem2_data (store_vec4_to_lval)
+    %jmp T_1.9;
+T_1.9 ;
+    %pop/vec4 1;
+    %end;
+# The file index is used to find the file name in the following table.
+:file_names 4;
+    "N/A";
+    "<interactive>";
+    "-";
+    "imports\new\forwarding.v";
