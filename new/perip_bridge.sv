@@ -19,6 +19,15 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
+// ============================================================================
+// CPU 外设桥
+// ----------------------------------------------------------------------------
+// 负责把 CPU 的统一外设访问拆分到 DRAM、开关、按键、数码管、LED 和计数器：
+//   - DRAM 地址范围：0x8010_0000 ~ 0x8013_FFFF；
+//   - MMIO 地址范围：0x8020_xxxx，用固定地址访问 SW/KEY/SEG/LED/COUNTER；
+//   - 读路径对 DRAM/MMIO 做两拍对齐，保证 CPU load 返回时序一致；
+//   - 虚拟输入/输出跨 cpu_clk 与 cnt_clk，使用两级同步寄存器。
+// ============================================================================
 module perip_bridge(
     input  logic         clk				,
     input  logic         cnt_clk			,
@@ -51,7 +60,8 @@ module perip_bridge(
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     logic [31:0] LED;
 
-    // input synchronizers
+    // 输入同步器：virtual_sw/key 可能来自不同步外设域，先同步到 CPU 时钟域。
+    // 多 bit 信号仍可能出现不同 bit 非同拍变化，但对开关/按键这类慢速输入足够。
     logic [63:0] sw_sync_d1, sw_sync_d2;
     logic [7:0]  key_sync_d1, key_sync_d2;
 
@@ -79,8 +89,10 @@ module perip_bridge(
     logic wr_is_dram;
     logic [3:0] dram_wstrb;
 
+    // 写请求只由 byte strobe 决定；DRAM 会继续使用完整 wstrb 做字节写。
     assign perip_write_req = |perip_wstrb;
 
+    // 读使能和 MMIO 读数据打一拍。与下方地址译码流水一起形成固定读延迟。
     always_ff @(posedge clk) begin
         if (rst) begin
             perip_rd_en_r  <= 1'b0;
@@ -93,7 +105,8 @@ module perip_bridge(
         end
     end
 
-    // Address decode at request time, then pipeline the result
+    // 读地址在请求当拍完成译码，然后流水两级。
+    // 这样返回数据选择与 DRAM 的同步读延迟对齐，不需要在返回拍重新比较地址。
     logic rd_is_dram_r,  rd_is_dram_rr;
     logic rd_is_cnt_r,   rd_is_cnt_rr;
     logic rd_is_sw0_r,   rd_is_sw0_rr;
@@ -110,7 +123,7 @@ module perip_bridge(
             rd_is_key_r   <= 1'b0;  rd_is_key_rr  <= 1'b0;
             rd_is_seg_r   <= 1'b0;  rd_is_seg_rr  <= 1'b0;
         end else begin
-            // Cycle 0: decode address at request time
+            // Cycle 0：在发起读请求时锁存地址译码结果。
             rd_is_dram_r <= perip_rd_en &&
                             perip_rd_addr >= DRAM_ADDR_START &&
                             perip_rd_addr <  DRAM_ADDR_END;
@@ -120,7 +133,7 @@ module perip_bridge(
             rd_is_key_r  <= perip_rd_en && perip_rd_addr == KEY_ADDR;
             rd_is_seg_r  <= perip_rd_en && perip_rd_addr == SEG_ADDR;
 
-            // Cycle 1: first pipeline stage
+            // Cycle 1：译码结果继续后推，用于最终读数据 mux。
             rd_is_dram_rr <= rd_is_dram_r;
             rd_is_cnt_rr  <= rd_is_cnt_r;
             rd_is_sw0_rr  <= rd_is_sw0_r;
@@ -130,8 +143,9 @@ module perip_bridge(
         end
     end
 
-    // we don't care perip_wstrb in LED, SEG, SW & KEY, only care in DRAM
-    // write process
+    // MMIO 写寄存器。
+    // LED/SEG/COUNTER 只看是否有写请求，不按 byte strobe 部分更新；
+    // byte strobe 的逐字节语义只在 DRAM 写路径中使用。
     always_ff @(posedge clk) begin
         if (rst) begin
             LED            <= 32'd0;
@@ -152,6 +166,7 @@ module perip_bridge(
         end
     end
 
+    // MMIO 读数据选择。使用已经流水后的 rd_is_*_rr，和返回拍对齐。
     always_comb begin
         unique case (1'b1)
             rd_is_cnt_rr:  mmio_rdata_next = cnt_rdata;
@@ -164,6 +179,7 @@ module perip_bridge(
     end
 
 
+    // 最终读返回 mux：DRAM 命中返回 dram_rdata，其余 MMIO 返回 mmio_rdata_r。
     always_comb begin
         if (rd_is_dram_rr) begin
             perip_rdata = dram_rdata;
@@ -175,7 +191,7 @@ module perip_bridge(
     assign perip_dram_rdata = dram_rdata;
     assign perip_mmio_rdata = mmio_rdata_r;
 
-    // seg driver
+    // 数码管显示驱动：seg_wdata 是软件写入的显示值，display_seg 负责七段编码。
     display_seg seg_driver (
         .clk    (clk),
         .rst    (rst),
@@ -192,13 +208,15 @@ module perip_bridge(
     assign seg_output[27] = 0;
     assign seg_output[37] = 0;
     
+    // 只有落在 DRAM 地址范围内的写请求才传给 dram_driver；
+    // MMIO 写会在上面的寄存器写逻辑中处理。
     assign wr_is_dram =
         perip_addr >= DRAM_ADDR_START &&
         perip_addr <= DRAM_ADDR_END;
 
     assign dram_wstrb = wr_is_dram ? perip_wstrb : 4'b0000;
     
-    // dram rw
+    // DRAM 读写通路。
     dram_driver dram_driver_inst (
         .clk				(clk),
         .perip_addr			(perip_addr[17:0]),
@@ -209,7 +227,7 @@ module perip_bridge(
         .perip_rd_addr      (perip_rd_addr[17:0])
     );  
 
-    // counter rw
+    // 计数器外设。cnt_enable_cfg 在 CPU 域配置，counter 内部再同步到 cnt_clk。
     counter counter_inst (
         .cpu_clk            (clk),
         .cnt_clk            (cnt_clk),
@@ -218,7 +236,7 @@ module perip_bridge(
         .perip_rdata		(cnt_rdata)
     );
     
-    // output synchronizers
+    // 输出同步器：LED/SEG 最终给显示/虚拟外设侧使用，跨到 cnt_clk 域后输出。
     logic [31:0] led_sync_d1, led_sync_d2;
     logic [39:0] seg_sync_d1, seg_sync_d2;
 

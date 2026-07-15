@@ -2,6 +2,20 @@
 `include "defines.v"
 `include "dram_cache.v"
 
+// ============================================================================
+// RISC-V CPU 核心顶层
+// ----------------------------------------------------------------------------
+// 连接取指、译码、执行、两级访存、写回、冒险检测、转发和分支预测器。
+// 当前流水大致为：
+//   IF/request -> IF/ID -> ID -> ID/EX -> EX -> EX/MEM1 -> MEM1 -> MEM1/MEM2
+//   -> MEM2 -> MEM2/WB -> WB
+//
+// 顶层职责主要是“连线和控制汇合”：
+//   - fetch/branch predictor 的预测包与 IROM 响应保持同行；
+//   - HDU 产生 hold/flush，保证 load-use、多周期 M 扩展等场景正确；
+//   - forwarding 选择在 ID 阶段提前产生，EX 阶段只做数据 mux；
+//   - DRAM cache 和 MMIO slow load 在 MEM/WB 路径中分流。
+// ============================================================================
 module open_risc_v (
     input  wire        clk,
     input  wire        rst_n,
@@ -23,6 +37,7 @@ module open_risc_v (
 
     // ------------------------------------------------------------------
     // CTRL / branch redirect
+    // EX 产生真实 redirect，ctrl 延后一拍产生 ghost fetch 清除信号。
     // ------------------------------------------------------------------
     wire [31:0] ctrl_jump_addr_o;
     wire        ctrl_jump_en_o;
@@ -32,6 +47,7 @@ module open_risc_v (
 
     // ------------------------------------------------------------------
     // Branch predictor / fetch side
+    // req_* 是 request-stage 早预测，pred_* 是 IROM 响应阶段随指令同行的预测包。
     // ------------------------------------------------------------------
     wire        bp_pred_taken_o;
     wire        bp_pred_taken_accepted_o;
@@ -61,12 +77,14 @@ module open_risc_v (
 
     // ------------------------------------------------------------------
     // HDU
+    // 统一处理 load-use、慢速 load、多周期 M 扩展等导致的前端停顿/flush。
     // ------------------------------------------------------------------
     wire        hdu_hold_flag_o;
     wire        hdu_flush_flag_o;
 
     // ------------------------------------------------------------------
     // IF/ID
+    // IF/ID 内部带 skid buffer，用于 hold 期间暂存同步 IROM 返回的有效取指包。
     // ------------------------------------------------------------------
     wire [31:0] if_id_inst_addr_o;
     wire [31:0] if_id_inst_o;
@@ -375,8 +393,8 @@ module open_risc_v (
         ~bp_pred_flush_d1_r &
         ~bp_early_hit_r;
 
-    // Select the live or held prediction as one complete packet.
-    // Taken, target and prediction metadata must stay cycle-aligned.
+    // 在“当前 IROM 响应预测包”和“hold 期间保存的早预测包”之间选择。
+    // taken、target、GHR 必须作为完整预测包同行传递，不能拆开单独选择。
     wire use_held_prediction = bp_early_hit_r;
     wire live_pred_valid     = bp_if_valid;
     wire held_pred_valid     = bp_early_hit_r;
@@ -390,9 +408,8 @@ module open_risc_v (
     wire [`BP_GHR_WIDTH-1:0] effective_pred_ghr =
         use_held_prediction ? bp_early_pred_ghr_r : bp_pred_ghr_o;
 
-    // A synchronous fetch package can coincide with the package already held
-    // by IF/ID, especially after a predicted redirect. Suppress only exact
-    // same-PC duplicates; unrelated sequential fetches must still pass.
+    // 同步 IROM 返回的 fetch 包可能和 IF/ID 已保存的包同 PC，尤其在预测跳转后。
+    // 这里只抑制完全相同 PC 的重复包；其它顺序取指仍然必须放行。
     wire ifid_duplicate =
         if_id_load_valid_o && (bp_fetch_pc_r == if_id_inst_addr_o);
 
@@ -407,8 +424,9 @@ module open_risc_v (
         ~hdu_hold_flag_o &
         ~if_id_replay_pending_o;
 
-    // Keep the prediction-to-PC redirect path independent from
-    // predictor bookkeeping, statistics and update control.
+    // 预测到 PC 的 redirect 路径保持短而独立，不串入预测器统计/更新逻辑。
+    // fetch redirect 表示新取到的预测 taken 指令直接改 PC；
+    // replay redirect 表示 hold 期间缓存的预测 taken 包被重新放出，需要补一次 redirect。
     wire bp_fetch_redirect =
         ifid_direct_fire &
         ~use_held_prediction &
@@ -422,12 +440,12 @@ module open_risc_v (
     assign bp_pc_redirect_target =
         bp_replay_redirect ? if_id_pred_target_o : bp_pred_target_o;
 
-    // Predictor acceptance bookkeeping is generated in parallel.
-    // It must not add logic levels to the timing-critical PC path.
+    // 预测接受标记并行生成，不应该给 PC redirect 关键路径增加额外逻辑层级。
     assign bp_pred_taken_accepted_o = bp_pc_redirect_valid;
 
-    // Request-stage redirect: the target request enters IROM immediately, so
-    // unlike the late fallback it must not create bp_pred_flush_d1_r.
+    // request-stage early redirect：
+    // 目标 PC 请求已经当拍送入同步 IROM，因此不能再产生 bp_pred_flush_d1_r，
+    // 否则会把本来正确返回的目标指令当作 ghost fetch 清掉。
     wire bp_early_redirect =
         rst &
         ~hdu_hold_flag_o &
@@ -436,9 +454,8 @@ module open_risc_v (
         bp_req_btb_hit_o &
         bp_req_pred_taken_o;
 
-    // Select the final PC redirect valid and target in one priority block.
-    // This keeps redirect control and target selection consistent and avoids
-    // duplicated combinational cones feeding the PC update path.
+    // 最终 PC redirect 优先级选择。
+    // 优先级必须保持：EX 真实执行结果 > 已进入前端的预测/replay > request-stage 早预测。
     always @(*) begin
         pc_redirect_valid  = 1'b0;
         pc_redirect_target = 32'b0;
@@ -474,10 +491,11 @@ module open_risc_v (
             bp_early_pred_target_r   <= bp_req_pred_target_o;
             bp_early_pred_ghr_r      <= bp_req_pred_ghr_o;
 
-            // ?????redirect ??????IROM ??????ghost fetch??
+            // 已进入 IF/ID 流水的预测 redirect 会导致旧路径 IROM 响应晚一拍回来，
+            // 因此需要打一拍 flush；request-stage early redirect 不走这个 flush。
             bp_pred_flush_d1_r       <= bp_pred_taken_accepted_o;
 
-            // replay redirect ??????
+            // replay redirect 同样会在下一拍清掉旧路径/重复包，避免预测包二次进入。
             bp_replay_flush_d1_r     <= bp_replay_redirect;
         end
     end

@@ -1,6 +1,19 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// 分支预测器
+// ----------------------------------------------------------------------------
+// 组成：
+//   - BHT：2-bit 饱和计数器，结合 GHR 做 gshare 索引；
+//   - BTB：request-stage 目标缓存，用于同步 IROM 请求阶段提前重定向；
+//   - RAS：返回地址栈，用于 JAL/JALR 调用返回预测；
+//   - 可选 loop predictor：默认关闭，保留结构用于实验。
+//
+// 预测分两条路径：
+//   1. req_*：PC 请求阶段直接查 BTB/BHT，供 open_risc_v 早重定向；
+//   2. pred_*：IROM 响应阶段根据真实指令类型输出随指令同行的预测包。
+// ============================================================================
 module branch_predictor #(
     parameter BHT_ADDR_WIDTH = `BP_GHR_WIDTH,
     parameter BHT_SIZE = (1 << BHT_ADDR_WIDTH),
@@ -74,6 +87,7 @@ module branch_predictor #(
    reg [RAS_PTR_WIDTH-1:0] ras_sp_next_r;
    reg [RAS_PTR_WIDTH:0] ras_count_next_r;
 
+   // PC hash 避免只使用连续低位，降低循环/顺序代码在 BHT 中的冲突概率。
    function [BHT_ADDR_WIDTH-1:0] pc_hash;
         input [31:0] pc;
         begin
@@ -135,6 +149,7 @@ module branch_predictor #(
     wire loop_pred_taken_w =
         loop_pred_exit ? ~loop_dir[loop_pred_idx] : loop_dir[loop_pred_idx];
 
+    // BHT 未训练时使用 BTFNT：向后分支默认 taken，向前分支默认 not-taken。
     wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
     wire req_branch_bht_pred_taken_w =
         bht_valid[req_pred_idx] ? bht[req_pred_idx][1] :
@@ -157,6 +172,7 @@ module branch_predictor #(
     assign req_pred_target_o = btb_target[req_btb_idx];
     assign req_pred_ghr_o = ghr_r;
 
+    // 仿真初始化预测表，综合时这些初值也有助于 FPGA LUTRAM/寄存器获得确定状态。
     initial begin
         for (i = 0; i < BHT_SIZE; i = i + 1) begin
             bht[i] = WEAKLY_NOT_TAKEN;
@@ -177,6 +193,7 @@ module branch_predictor #(
         end
     end
 
+    // 预测器更新在提交/写回侧进行，使用当时随指令保存的 GHR 索引回写 BHT。
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             ghr_r       <= {BHT_ADDR_WIDTH{1'b0}};
@@ -189,6 +206,7 @@ module branch_predictor #(
                 btb_target[update_btb_idx] <= update_target_i;
                 bht_valid[update_idx] <= 1'b1;
 
+                // 2-bit 饱和计数器更新：taken 向强 taken 移动，not-taken 反向移动。
                 case (bht[update_idx])
                     STRONGLY_NOT_TAKEN: bht[update_idx] <= actual_taken_i ? WEAKLY_NOT_TAKEN : STRONGLY_NOT_TAKEN;
                     WEAKLY_NOT_TAKEN:   bht[update_idx] <= actual_taken_i ? WEAKLY_TAKEN     : STRONGLY_NOT_TAKEN;
@@ -227,6 +245,7 @@ module branch_predictor #(
                 end
             end
 
+            // RAS 同拍 pop/push 时先 pop 再 push，支持 ret 后紧跟 call 的嵌套模式。
             if (ras_pop_en_i || ras_push_en_i) begin
                 ras_sp_next_r = ras_sp_r;
                 ras_count_next_r = ras_count_r;
@@ -250,6 +269,7 @@ module branch_predictor #(
         end
     end
 
+    // IROM 响应阶段预测：只有拿到真实 opcode 后才区分 B/JAL/JALR。
     always @(*) begin
         pred_taken_o  = 1'b0;
         pred_target_o = 32'b0;

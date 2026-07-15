@@ -1,6 +1,15 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// ID 译码阶段
+// ----------------------------------------------------------------------------
+// 完成指令字段拆解、立即数生成、寄存器读地址输出和 EX 控制信号预译码。
+// 关键设计点：
+//   - 分支条件在 ID 阶段预译码成 `BR_*`，EX 不再解析 funct3；
+//   - JAL/JALR/RAS hint 在 ID 阶段生成，后续用于预测器更新和返回地址栈维护；
+//   - use_rs1/use_rs2/use_base_addr 明确告诉 HDU/forwarding 哪些寄存器是真依赖。
+// ============================================================================
 module id (
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
@@ -72,6 +81,8 @@ module id (
     assign rd_addr_o  = rd;
     assign is_branch_o = (opcode == `INST_TYPE_B);
 
+    // use_* 信号是冒险检测和提前转发的依赖声明，不只是译码分类。
+    // JALR/load/store 读取 rs1 作为 base，因此也会参与 rs1/base 转发。
     assign use_rs1_o = (opcode == `INST_TYPE_I)   ||
                        (opcode == `INST_TYPE_R_M) ||
                        (opcode == `INST_TYPE_B)   ||
@@ -107,6 +118,8 @@ module id (
                                       ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
                                        (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
                                        (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    // RAS hint 遵循 RISC-V 约定：x1/x5 作为 link register。
+    // 这些 hint 只影响预测器/RAS，不改变指令 architected 行为。
     assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
     assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
     assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
@@ -162,8 +175,8 @@ module id (
             end
 
             `INST_TYPE_B: begin
-                // Predecode the branch condition in ID and register it into EX.
-                // This avoids decoding funct3 again on the branch redirect path.
+                // 分支条件在 ID 阶段预译码，EX 只需要选择比较结果。
+                // 这样可以减少分支 redirect 路径上的 funct3 解码逻辑。
                 case (func3)
                     `INST_BNE, `INST_BEQ, `INST_BLT,
                     `INST_BGE, `INST_BLTU, `INST_BGEU: begin

@@ -1,6 +1,16 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// 简化机器态 CSR 单元
+// ----------------------------------------------------------------------------
+// 支持 mstatus/mtvec/mscratch/mepc/mcause 的基本读写，以及 ecall/mret 跳转。
+// CSR 指令在 EX 阶段执行：
+//   - CSRRS/CSRRC 当 rs1=x0 时不写 CSR；
+//   - CSRRSI/CSRRCI 当 uimm=0 时不写 CSR；
+//   - ecall 保存 mepc/mcause 并跳到 mtvec；
+//   - mret 跳回 mepc。
+// ============================================================================
 module csr (
     input  wire        clk,
     input  wire        rst,
@@ -33,6 +43,7 @@ module csr (
     reg [31:0] mcause_r;
     reg [31:0] csr_wdata_r;
 
+    // RISC-V 规定 CSRRS/CSRRC 的源为 0 时只读不写，立即数形式同理。
     wire csr_write_en = is_csr_op &&
                         ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRWI) ||
                         (((func3 == `INST_CSRRS)  || (func3 == `INST_CSRRC))  && (rs1_addr != 5'b0)) ||
@@ -40,6 +51,7 @@ module csr (
 
     assign trap_jump_en_o = valid_i && (is_ecall || is_mret);
 
+    // 组合读 CSR，并同时计算写回 CSR 的新值和 trap 目标地址。
     always @(*) begin
         case (csr_addr)
             `CSR_MSTATUS: csr_rdata_o = mstatus_r;
@@ -60,6 +72,7 @@ module csr (
         trap_jump_addr_o = is_mret ? mepc_r : {mtvec_r[31:2], 2'b00};
     end
 
+    // CSR 状态寄存器同步更新；valid_i 被 kill 时为 0，避免旧路径指令改 CSR。
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             mstatus_r <= 32'b0;

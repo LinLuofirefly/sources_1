@@ -5,6 +5,17 @@
 `include "defines.v"
 `endif
 
+// ============================================================================
+// 简单直接映射 DRAM load cache
+// ----------------------------------------------------------------------------
+// 只缓存 DRAM 区域的 load word，用于降低重复 load 延迟：
+//   - MEM1 用 ex_load_addr_i 提前发起同步读；
+//   - MEM2 在 miss 后用 RAM 返回数据 refill；
+//   - store 命中缓存时按字节更新对应 cache line；
+//   - store 与 refill 同 index 时，refill 优先，避免同拍双写同一行产生不确定行为。
+//
+// 本缓存不是一致性完整的数据缓存，只服务本流水线内 DRAM load 加速。
+// ============================================================================
 module dram_cache #(
     parameter [31:0] DRAM_ADDR_START = 32'h8010_0000,
     parameter [31:0] DRAM_ADDR_END   = 32'h8014_0000,
@@ -43,6 +54,7 @@ module dram_cache #(
     localparam integer LINES = (1 << INDEX_BITS);
     localparam integer TAG_BITS = 32 - INDEX_BITS - 2;
 
+    // 按 byte write strobe 合并 store 数据，用于 store hit 更新和 refill 后覆盖。
     function [31:0] merge_store_word;
         input [31:0] old_word;
         input [31:0] store_data;
@@ -54,6 +66,7 @@ module dram_cache #(
         end
     endfunction
 
+    // 根据 load 指令类型和地址低位完成字节/半字选择与符号扩展。
     function [31:0] align_load_word;
         input [31:0] inst;
         input [31:0] addr;
@@ -128,16 +141,20 @@ module dram_cache #(
     reg [TAG_BITS-1:0] read_tag_r;
     reg read_valid_r;
     integer i;
+    // store 命中已缓存行时，需要同步更新 data_array，避免后续 load 读到旧值。
     wire store_hit =
         store_req &&
         valid_array[store_idx] &&
         (tag_array[store_idx] == store_tag);
+    // refill 与 store hit 同 index 同拍发生时只执行 refill 写。
+    // refill_word 已经融合 MEM2 store-load 前递数据，避免双写同一数组元素。
     wire refill_store_same_idx =
         refill_req &&
         (refill_idx == store_idx);
     wire data_write_refill = refill_req;
     wire data_write_store_hit = store_hit && !refill_store_same_idx;
 
+    // data/tag/valid 为同步读：MEM1 当拍使用的是上一拍 ex_load_addr_i 的读出结果。
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             read_data_r  <= 32'b0;
@@ -178,6 +195,7 @@ module dram_cache #(
         end
     end
 
+    // MEM1 命中要求：当前是 DRAM load、有效位为 1，且 tag 与 load 地址匹配。
     assign mem1_load_cache_hit_o =
         mem1_is_load_i &&
         mem1_load_hits_dram_i &&

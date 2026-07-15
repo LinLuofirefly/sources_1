@@ -1,6 +1,13 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// WB 写回级
+// ----------------------------------------------------------------------------
+// 普通 ALU/cache-hit load 数据直接从 rd_data_i 写回。
+// 对 slow load/MMIO load，本级根据 load 类型和地址低位从 mmio_data_i 中取字节/半字，
+// 完成符号扩展或零扩展后再写回寄存器堆。
+// ============================================================================
 module wb (
     input  wire [4:0]  rd_addr_i,
     input  wire [31:0] rd_data_i,
@@ -24,6 +31,7 @@ module wb (
     assign rd_wen_o  = rd_wen_i;
     assign inst_o    = inst_i;
 
+    // MMIO 返回一个 32-bit word，具体取哪一段由 load 地址低位和 funct3 决定。
     always @(*) begin
         case (func3)
             `INST_LB: begin
@@ -63,6 +71,7 @@ module wb (
         endcase
     end
 
+    // 只有 slow load 且当前指令确实是 load 时，才用 MMIO 对齐结果覆盖 rd_data_i。
     assign rd_data_o =
         (is_slow_load_i && is_load_w) ? mmio_load_data_w : rd_data_i;
 

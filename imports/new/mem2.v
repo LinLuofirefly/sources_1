@@ -1,6 +1,15 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// MEM2 第二访存级
+// ----------------------------------------------------------------------------
+// 根据 load 地址低位和 funct3 完成 LB/LH/LW/LBU/LHU 的字节选择与符号扩展。
+// 同时处理 store-load 前递：如果前序 store 与本次 load 同字节重叠，
+// 则优先使用 store 数据覆盖 RAM 返回字节，保证同地址读写顺序正确。
+// cache-hit load 直接使用前级缓存给出的 rd_data_i，未命中/非缓存路径使用
+// 本级对 mem_rd_data_i 对齐后的结果。
+// ============================================================================
 module mem2 (
     input  wire [31:0] inst_i,
     input  wire [4:0]  rd_addr_i,
@@ -22,6 +31,8 @@ module mem2 (
 
     wire [2:0] func3 = inst_i[14:12];
 
+    // 按字节合并 store-load 前递数据。只覆盖 wstrb 指示的字节，
+    // 未覆盖字节仍来自 RAM 返回值。
     wire fwd_b0 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[0];
     wire fwd_b1 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[1];
     wire fwd_b2 = store_load_fwd_valid_i && store_load_fwd_wstrb_i[2];
@@ -39,6 +50,7 @@ module mem2 (
                                         load_word[31:24];
     wire [15:0] load_half =
         mem_rd_addr_i[1] ? load_word[31:16] : load_word[15:0];
+    // 非缓存/慢速路径的 load 对齐与符号扩展。
     wire [31:0] uncached_load_data =
         (func3 == `INST_LB)  ? {{24{load_byte[7]}}, load_byte}  :
         (func3 == `INST_LH)  ? {{16{load_half[15]}}, load_half} :

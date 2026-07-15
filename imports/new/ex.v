@@ -1,6 +1,16 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// ============================================================================
+// EX 执行阶段
+// ----------------------------------------------------------------------------
+// 负责 ALU、分支/JAL/JALR 重定向、load/store 地址和写掩码生成、CSR、RV32M。
+// 关键点：
+//   - 分支比较只生成 eq/lt_signed/lt_unsigned 三类基础结果，其他条件取反复用；
+//   - JALR 目标最低位强制清零，符合 RISC-V 规范；
+//   - RV32M 为迭代多周期单元，busy 期间向后级隐藏指令，done 时只提交一次结果；
+//   - kill_i 有效时禁止当前 EX 指令产生寄存器/访存/预测器副作用。
+// ============================================================================
 module ex (
     input  wire        clk,
     input  wire        rst,
@@ -84,8 +94,8 @@ module ex (
      wire [31:0] branch_op1 = fwd_br_op1_i;
      wire [31:0] branch_op2 = fwd_br_op2_i;
 
-     // Generate only the three base branch comparisons.
-     // BNE, BGE and BGEU reuse the inverted base results.
+     // 只生成三类基础分支比较结果，BNE/BGE/BGEU 通过取反复用。
+     // 这样比较器数量固定，分支判断路径也更清晰。
      wire branch_eq          = (branch_op1 == branch_op2);
      wire branch_lt_signed   = ($signed(branch_op1) < $signed(branch_op2));
      wire branch_lt_unsigned = (branch_op1 < branch_op2);
@@ -127,8 +137,8 @@ module ex (
     wire branch_direction_mismatch_w = (branch_taken_w != pred_taken_i);
     wire branch_target_mismatch_w =
         branch_taken_w && pred_taken_i && (pred_target_i != branch_target_addr);
-    // Keep the timing-critical EX-to-PC redirect path local.
-    // Predictor update and pipeline flush logic must preserve the same behavior.
+    // EX->PC redirect 是时序关键路径：这里只判断方向/目标是否和预测不一致。
+    // 预测器更新和 flush 控制在旁路并行产生，不能把额外统计/更新逻辑串进该路径。
     wire branch_redirect_w =
         dec_is_branch_i && (branch_direction_mismatch_w || branch_target_mismatch_w);
     wire [31:0] branch_redirect_addr_w =
@@ -150,8 +160,8 @@ module ex (
     reg  [31:0] rv32m_inst_r;
     reg  [4:0]  rv32m_rd_addr_r;
     reg         rv32m_rd_wen_r;
-    // EX only launches the iterative unit once per decoded M instruction.
-    // While busy is high, HDU freezes the front of the pipeline and EX emits NOP.
+    // EX 对每条 M 扩展指令只启动一次迭代单元。
+    // busy 期间 HDU 冻结前端，本模块对后级输出 NOP，避免同一条乘除法重复提交。
     wire        rv32m_iter_busy_w;
     wire        rv32m_iter_done_w;
     wire [31:0] rv32m_result_w;
@@ -194,8 +204,8 @@ module ex (
             rv32m_rd_addr_r <= 5'b0;
             rv32m_rd_wen_r  <= 1'b0;
         end else if (rv32m_start) begin
-            // Latch writeback metadata so the result can be replayed after the
-            // iterative unit finishes, even though ID/EX is stalled meanwhile.
+            // 保存写回元数据。迭代单元完成时 ID/EX 可能仍保持停顿状态，
+            // 因此必须用这里锁存的 rd/写使能/指令来提交最终结果。
             rv32m_inst_r    <= inst_i;
             rv32m_rd_addr_r <= rd_addr_i;
             rv32m_rd_wen_r  <= rd_wen_i;
@@ -226,8 +236,7 @@ module ex (
         inst_o             = kill_i ? `INST_NOP : inst_i;
 
         if (rv32m_busy_o == 1'b1) begin
-            // Hide the in-flight M instruction from later stages until the
-            // iterative unit produces a single-cycle done pulse.
+            // 乘除法尚未完成时，对后级隐藏当前指令，防止 MEM/WB 看到半成品。
             inst_o = `INST_NOP;
         end else if (rv32m_done_o == 1'b1) begin
             rd_addr_o = rv32m_rd_addr_r;

@@ -783,7 +783,7 @@ int main(int argc, char **argv, char **env) {
 
     uint64_t cycle       = 0;
     uint64_t sim_time    = 0;
-    const uint64_t CPU_HALF    = 3;
+    const uint64_t CPU_HALF    = 2.38;  // ~250 MHz (closest to 210 MHz with integer half-period)
     const uint64_t MHZ50_HALF  = 10;
 
     uint64_t next_cpu_toggle   = 0;
