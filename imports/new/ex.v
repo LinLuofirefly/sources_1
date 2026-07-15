@@ -101,6 +101,26 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
+     // RV32 ZBKB BREV8 single-instruction support.
+     wire bitmanip_match_w =
+             (inst_i[6:0] == 7'h13) &&
+             (inst_i[14:12] == 3'h5) &&
+             (inst_i[31:20] == 12'h687);
+     function automatic [31:0] bitmanip_compute;
+         input [31:0] value1;
+         input [31:0] value2;
+         integer bitmanip_i;
+         integer bitmanip_j;
+         begin
+             bitmanip_compute = 32'b0;
+             for (bitmanip_i = 0; bitmanip_i < 4; bitmanip_i = bitmanip_i + 1)
+                 for (bitmanip_j = 0; bitmanip_j < 8; bitmanip_j = bitmanip_j + 1)
+                     bitmanip_compute[bitmanip_i*8 + bitmanip_j] =
+                         value1[bitmanip_i*8 + (7-bitmanip_j)];
+         end
+     endfunction
+     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
+
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
     wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
@@ -235,7 +255,12 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (dec_is_op_imm_i) begin
+            if (bitmanip_match_w) begin
+                rd_addr_o = rd_addr_i;
+                rd_data_o = bitmanip_result_w;
+                rd_wen_o  = rd_wen_i;
+            end
+            else if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
