@@ -101,6 +101,13 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
+     // RV32 ZBB ROR single-instruction support.
+     wire bitmanip_match_w =
+             (inst_i[6:0] == 7'h33) &&
+             (inst_i[14:12] == 3'h5) &&
+             (inst_i[31:25] == 7'h30);
+     wire [31:0] bitmanip_result_w = (alu_op1 >> alu_op2[4:0]) | (alu_op1 << (5'd0 - alu_op2[4:0]));
+
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
     wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
@@ -235,7 +242,12 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (dec_is_op_imm_i) begin
+            if (bitmanip_match_w) begin
+                rd_addr_o = rd_addr_i;
+                rd_data_o = bitmanip_result_w;
+                rd_wen_o  = rd_wen_i;
+            end
+            else if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
