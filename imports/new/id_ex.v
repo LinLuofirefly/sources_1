@@ -46,6 +46,7 @@ module id_ex (
     input  wire        ex_is_system_i,
     input  wire        ex_is_rv32m_i,
     input  wire        ex_is_csr_op_i,
+    input  wire        ex_is_maxu_i,
     input  wire        ex_is_call_jal_i,
     input  wire        ex_ras_should_push_jalr_i,
     input  wire        ex_ras_should_pop_jalr_i,
@@ -92,6 +93,7 @@ module id_ex (
     (* extract_enable = "no" *) output reg        ex_is_system_o,
     (* extract_enable = "no" *) output reg        ex_is_rv32m_o,
     (* extract_enable = "no" *) output reg        ex_is_csr_op_o,
+    (* extract_enable = "no" *) output reg        ex_is_maxu_o,
     (* extract_enable = "no" *) output reg        ex_is_call_jal_o,
     (* extract_enable = "no" *) output reg        ex_ras_should_push_jalr_o,
     (* extract_enable = "no" *) output reg        ex_ras_should_pop_jalr_o,
@@ -293,6 +295,13 @@ module id_ex (
         hold_flag_i  ? ex_is_csr_op_o :
                        ex_is_csr_op_i;
 
+    // maxu 是单周期无符号比较选择写回指令。flush/reset 清零，hold 保持，
+    // 保证控制位和同拍操作数严格对齐。
+    wire ex_is_maxu_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_maxu_o :
+                       ex_is_maxu_i;
+
     wire ex_is_call_jal_next =
         flush_flag_i ? 1'b0 :
         hold_flag_i  ? ex_is_call_jal_o :
@@ -354,6 +363,7 @@ module id_ex (
             ex_is_system_o  <= 1'b0;
             ex_is_rv32m_o   <= 1'b0;
             ex_is_csr_op_o  <= 1'b0;
+            ex_is_maxu_o    <= 1'b0;
             ex_is_call_jal_o <= 1'b0;
             ex_ras_should_push_jalr_o <= 1'b0;
             ex_ras_should_pop_jalr_o  <= 1'b0;
@@ -398,6 +408,7 @@ module id_ex (
             ex_is_system_o  <= ex_is_system_next;
             ex_is_rv32m_o   <= ex_is_rv32m_next;
             ex_is_csr_op_o  <= ex_is_csr_op_next;
+            ex_is_maxu_o    <= ex_is_maxu_next;
             ex_is_call_jal_o <= ex_is_call_jal_next;
             ex_ras_should_push_jalr_o <= ex_ras_should_push_jalr_next;
             ex_ras_should_pop_jalr_o  <= ex_ras_should_pop_jalr_next;
