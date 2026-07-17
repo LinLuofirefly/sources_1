@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_orc_b_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,23 +102,15 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBB ORC.B single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h13) &&
-             (inst_i[14:12] == 3'h5) &&
-             (inst_i[31:20] == 12'h287);
-     function automatic [31:0] bitmanip_compute;
-         input [31:0] value1;
-         input [31:0] value2;
-         integer bitmanip_i;
-         begin
-             bitmanip_compute = 32'b0;
-             for (bitmanip_i = 0; bitmanip_i < 4; bitmanip_i = bitmanip_i + 1)
-                 bitmanip_compute[bitmanip_i*8 +: 8] =
-                     (|value1[bitmanip_i*8 +: 8]) ? 8'hff : 8'h00;
-         end
-     endfunction
-     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
+     // Zbb orc.b 语义：每个字节只要任意位为 1，该字节结果为 8'hff，否则为 8'h00。
+     // 直接写成四组独立 8 位归约 OR，避免循环形式被误读为通用结构；
+     // 结果只在写回数据路径局部选择，不接入 PC redirect 或分支比较网络。
+     wire [31:0] orc_b_result_w = {
+         (|alu_op1[31:24]) ? 8'hff : 8'h00,
+         (|alu_op1[23:16]) ? 8'hff : 8'h00,
+         (|alu_op1[15:8])  ? 8'hff : 8'h00,
+         (|alu_op1[7:0])   ? 8'hff : 8'h00
+     };
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -253,9 +246,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_orc_b_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = orc_b_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin
