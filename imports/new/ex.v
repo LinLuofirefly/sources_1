@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_zext_h_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,13 +102,10 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBB ZEXT.H single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h33) &&
-             (inst_i[14:12] == 3'h4) &&
-             (inst_i[31:25] == 7'h04) &&
-             (inst_i[24:20] == 5'h00);
-     wire [31:0] bitmanip_result_w = {16'b0, alu_op1[15:0]};
+     // Zbb zext.h 语义：rd = zero_extend(rs1[15:0])。
+     // 固定补零拼接比通用移位/掩码更短；结果只由 dec_is_zext_h_i 选择进入写回，
+     // 不接入分支比较、JALR 目标或 PC 重定向控制。
+     wire [31:0] zext_h_result_w = {16'b0, alu_op1[15:0]};
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -243,9 +241,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_zext_h_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = zext_h_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin

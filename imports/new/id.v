@@ -44,6 +44,7 @@ module id (
     output wire        ex_is_system_o,
     output wire        ex_is_rv32m_o,
     output wire        ex_is_csr_op_o,
+    output wire        ex_is_zext_h_o,
     output wire        ex_is_call_jal_o,
     output wire        ex_ras_should_push_jalr_o,
     output wire        ex_ras_should_pop_jalr_o,
@@ -66,6 +67,10 @@ module id (
     wire rd_is_link     = (rd == 5'b1) || (rd == 5'b101);
     wire rs1_is_link    = (rs1 == 5'b1) || (rs1 == 5'b101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
+    wire is_zext_h      = (opcode == `INST_TYPE_R_M) &&
+                          (func3 == 3'b100) &&
+                          (func7 == 7'b0000100) &&
+                          (rs2 == 5'b00000);
 
     assign rs1_addr_o = rs1;
     assign rs2_addr_o = rs2;
@@ -80,7 +85,7 @@ module id (
                        (opcode == `INST_JALR)     ||
                        system_use_rs1;
 
-    assign use_rs2_o = (opcode == `INST_TYPE_R_M) ||
+    assign use_rs2_o = ((opcode == `INST_TYPE_R_M) && !is_zext_h) ||
                        (opcode == `INST_TYPE_B)   ||
                        (opcode == `INST_TYPE_S);
 
@@ -107,6 +112,9 @@ module id (
                                       ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
                                        (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
                                        (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    // Zbb zext.h 标准编码：opcode=0110011, funct3=100, funct7=0000100, rs2=00000。
+    // rs2 是固定编码字段而不是操作数，因此 use_rs2_o 排除该指令，避免虚假的转发/冒险依赖。
+    assign ex_is_zext_h_o           = is_zext_h;
     assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
     assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
     assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
