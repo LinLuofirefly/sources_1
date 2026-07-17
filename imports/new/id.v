@@ -44,6 +44,7 @@ module id (
     output wire        ex_is_system_o,
     output wire        ex_is_rv32m_o,
     output wire        ex_is_csr_op_o,
+    output wire        ex_is_xperm8_o,
     output wire        ex_is_call_jal_o,
     output wire        ex_ras_should_push_jalr_o,
     output wire        ex_ras_should_pop_jalr_o,
@@ -66,6 +67,9 @@ module id (
     wire rd_is_link     = (rd == 5'b1) || (rd == 5'b101);
     wire rs1_is_link    = (rs1 == 5'b1) || (rs1 == 5'b101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
+    wire is_xperm8      = (opcode == `INST_TYPE_R_M) &&
+                          (func3 == 3'b100) &&
+                          (func7 == 7'b0010100);
 
     assign rs1_addr_o = rs1;
     assign rs2_addr_o = rs2;
@@ -107,6 +111,9 @@ module id (
                                       ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
                                        (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
                                        (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    // Zbkx xperm8 标准编码：opcode=0110011, funct3=100, funct7=0010100。
+    // 该指令逐 byte 选择，EX 采用固定 4 拍迭代，避免大型单周期交叉开关。
+    assign ex_is_xperm8_o           = is_xperm8;
     assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
     assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
     assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));

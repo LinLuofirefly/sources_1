@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_xperm8_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -100,29 +101,6 @@ module ex (
      wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
-
-     // RV32 ZBKX XPERM8 single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h33) &&
-             (inst_i[14:12] == 3'h4) &&
-             (inst_i[31:25] == 7'h14);
-     function automatic [31:0] bitmanip_compute;
-         input [31:0] value1;
-         input [31:0] value2;
-         integer bitmanip_i;
-         integer bitmanip_index;
-         begin
-             bitmanip_compute = 32'b0;
-             bitmanip_index = 0;
-             for (bitmanip_i = 0; bitmanip_i < 4; bitmanip_i = bitmanip_i + 1) begin
-                 bitmanip_index = (value2 >> (bitmanip_i*8)) & 8'hff;
-                 if (bitmanip_index < 4)
-                     bitmanip_compute = bitmanip_compute |
-                         (((value1 >> (bitmanip_index*8)) & 32'hff) << (bitmanip_i*8));
-             end
-         end
-     endfunction
-     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -173,12 +151,71 @@ module ex (
     reg  [31:0] rv32m_inst_r;
     reg  [4:0]  rv32m_rd_addr_r;
     reg         rv32m_rd_wen_r;
+    reg  [31:0] xperm_inst_r;
+    reg  [4:0]  xperm_rd_addr_r;
+    reg         xperm_rd_wen_r;
+    reg         xperm_busy_r;
+    reg         xperm_done_r;
+    reg  [1:0]  xperm_count_r;
+    reg  [31:0] xperm_src_r;
+    reg  [31:0] xperm_idx_r;
+    reg  [31:0] xperm_result_r;
+    reg  [31:0] xperm_result_done_r;
+
+    function automatic [7:0] xperm8_pick;
+        input [31:0] src;
+        input [7:0]  idx;
+        begin
+            case (idx)
+                8'd0: xperm8_pick = src[7:0];
+                8'd1: xperm8_pick = src[15:8];
+                8'd2: xperm8_pick = src[23:16];
+                8'd3: xperm8_pick = src[31:24];
+                default: xperm8_pick = 8'b0;
+            endcase
+        end
+    endfunction
+
+    function automatic [31:0] xperm8_set_lane;
+        input [31:0] partial;
+        input [1:0]  lane;
+        input [7:0]  value;
+        begin
+            xperm8_set_lane = partial;
+            case (lane)
+                2'd0: xperm8_set_lane[7:0] = value;
+                2'd1: xperm8_set_lane[15:8] = value;
+                2'd2: xperm8_set_lane[23:16] = value;
+                2'd3: xperm8_set_lane[31:24] = value;
+                default: xperm8_set_lane = partial;
+            endcase
+        end
+    endfunction
+
+    reg [7:0] xperm8_idx_w;
+    always @(*) begin
+        case (xperm_count_r)
+            2'd0: xperm8_idx_w = xperm_idx_r[7:0];
+            2'd1: xperm8_idx_w = xperm_idx_r[15:8];
+            2'd2: xperm8_idx_w = xperm_idx_r[23:16];
+            2'd3: xperm8_idx_w = xperm_idx_r[31:24];
+            default: xperm8_idx_w = 8'b0;
+        endcase
+    end
+    wire [7:0] xperm8_lane_w = xperm8_pick(xperm_src_r, xperm8_idx_w);
+    wire [31:0] xperm8_result_next_w =
+        xperm8_set_lane(xperm_result_r, xperm_count_r, xperm8_lane_w);
     // EX only launches the iterative unit once per decoded M instruction.
     // While busy is high, HDU freezes the front of the pipeline and EX emits NOP.
     wire        rv32m_iter_busy_w;
     wire        rv32m_iter_done_w;
     wire [31:0] rv32m_result_w;
-    wire rv32m_start = (kill_i == 1'b0) && dec_is_rv32m_i && (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0);
+    wire xperm_start = (kill_i == 1'b0) && dec_is_xperm8_i &&
+                       (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0) &&
+                       (xperm_busy_r == 1'b0) && (xperm_done_r == 1'b0);
+    wire rv32m_start = (kill_i == 1'b0) && dec_is_rv32m_i &&
+                       (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0) &&
+                       (xperm_busy_r == 1'b0) && (xperm_done_r == 1'b0);
 
     rv32m_iter rv32m_iter_inst (
         .clk    (clk),
@@ -192,8 +229,8 @@ module ex (
         .result_o(rv32m_result_w)
     );
 
-    assign rv32m_busy_o = rv32m_start || rv32m_iter_busy_w;
-    assign rv32m_done_o = rv32m_iter_done_w;
+    assign rv32m_busy_o = rv32m_start || rv32m_iter_busy_w || xperm_start || xperm_busy_r;
+    assign rv32m_done_o = rv32m_iter_done_w || xperm_done_r;
 
     wire [31:0] csr_rdata_w;
     wire [31:0] csr_trap_jump_addr_w;
@@ -216,12 +253,47 @@ module ex (
             rv32m_inst_r    <= `INST_NOP;
             rv32m_rd_addr_r <= 5'b0;
             rv32m_rd_wen_r  <= 1'b0;
+            xperm_inst_r    <= `INST_NOP;
+            xperm_rd_addr_r <= 5'b0;
+            xperm_rd_wen_r  <= 1'b0;
+            xperm_busy_r    <= 1'b0;
+            xperm_done_r    <= 1'b0;
+            xperm_count_r   <= 2'b0;
+            xperm_src_r     <= 32'b0;
+            xperm_idx_r     <= 32'b0;
+            xperm_result_r  <= 32'b0;
+            xperm_result_done_r <= 32'b0;
         end else if (rv32m_start) begin
             // Latch writeback metadata so the result can be replayed after the
             // iterative unit finishes, even though ID/EX is stalled meanwhile.
             rv32m_inst_r    <= inst_i;
             rv32m_rd_addr_r <= rd_addr_i;
             rv32m_rd_wen_r  <= rd_wen_i;
+            xperm_done_r    <= 1'b0;
+        end else begin
+            xperm_done_r <= 1'b0;
+
+            if (xperm_start) begin
+                // xperm8 start 锁存 rs1/rs2 和写回元数据，随后每拍处理一个 byte。
+                // 索引 4 及以上按标准输出 0，done 单拍，避免重复提交。
+                xperm_inst_r    <= inst_i;
+                xperm_rd_addr_r <= rd_addr_i;
+                xperm_rd_wen_r  <= rd_wen_i;
+                xperm_busy_r    <= 1'b1;
+                xperm_count_r   <= 2'b0;
+                xperm_src_r     <= alu_op1;
+                xperm_idx_r     <= alu_op2;
+                xperm_result_r  <= 32'b0;
+            end else if (xperm_busy_r) begin
+                xperm_result_r <= xperm8_result_next_w;
+                if (xperm_count_r == 2'd3) begin
+                    xperm_busy_r <= 1'b0;
+                    xperm_done_r <= 1'b1;
+                    xperm_result_done_r <= xperm8_result_next_w;
+                end else begin
+                    xperm_count_r <= xperm_count_r + 2'd1;
+                end
+            end
         end
     end
 
@@ -252,18 +324,18 @@ module ex (
             // Hide the in-flight M instruction from later stages until the
             // iterative unit produces a single-cycle done pulse.
             inst_o = `INST_NOP;
-        end else if (rv32m_done_o == 1'b1) begin
+        end else if (rv32m_iter_done_w == 1'b1) begin
             rd_addr_o = rv32m_rd_addr_r;
             rd_data_o = rv32m_result_w;
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
+        end else if (xperm_done_r == 1'b1) begin
+            rd_addr_o = xperm_rd_addr_r;
+            rd_data_o = xperm_result_done_r;
+            rd_wen_o  = xperm_rd_wen_r;
+            inst_o    = xperm_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
-                rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
-                rd_wen_o  = rd_wen_i;
-            end
-            else if (dec_is_op_imm_i) begin
+            if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
