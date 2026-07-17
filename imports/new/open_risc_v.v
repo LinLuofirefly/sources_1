@@ -120,6 +120,7 @@ module open_risc_v (
     wire        id_dec_is_system_o;
     wire        id_dec_is_rv32m_o;
     wire        id_dec_is_csr_op_o;
+    wire        id_dec_is_clmulh_o;
     wire        id_dec_is_call_jal_o;
     wire        id_dec_ras_should_push_jalr_o;
     wire        id_dec_ras_should_pop_jalr_o;
@@ -177,6 +178,7 @@ module open_risc_v (
     wire        id_ex_is_system_o;
     wire        id_ex_is_rv32m_o;
     wire        id_ex_is_csr_op_o;
+    wire        id_ex_is_clmulh_o;
     wire        id_ex_is_call_jal_o;
     wire        id_ex_ras_should_push_jalr_o;
     wire        id_ex_ras_should_pop_jalr_o;
@@ -614,6 +616,7 @@ module open_risc_v (
         .ex_is_system_o  (id_dec_is_system_o),
         .ex_is_rv32m_o   (id_dec_is_rv32m_o),
         .ex_is_csr_op_o  (id_dec_is_csr_op_o),
+        .ex_is_clmulh_o  (id_dec_is_clmulh_o),
         .ex_is_call_jal_o(id_dec_is_call_jal_o),
         .ex_ras_should_push_jalr_o(id_dec_ras_should_push_jalr_o),
         .ex_ras_should_pop_jalr_o (id_dec_ras_should_pop_jalr_o),
@@ -690,6 +693,7 @@ module open_risc_v (
         .ex_is_system_i  (id_dec_is_system_o),
         .ex_is_rv32m_i   (id_dec_is_rv32m_o),
         .ex_is_csr_op_i  (id_dec_is_csr_op_o),
+        .ex_is_clmulh_i  (id_dec_is_clmulh_o),
         .ex_is_call_jal_i(id_dec_is_call_jal_o),
         .ex_ras_should_push_jalr_i(id_dec_ras_should_push_jalr_o),
         .ex_ras_should_pop_jalr_i (id_dec_ras_should_pop_jalr_o),
@@ -733,6 +737,7 @@ module open_risc_v (
         .ex_is_system_o  (id_ex_is_system_o),
         .ex_is_rv32m_o   (id_ex_is_rv32m_o),
         .ex_is_csr_op_o  (id_ex_is_csr_op_o),
+        .ex_is_clmulh_o  (id_ex_is_clmulh_o),
         .ex_is_call_jal_o(id_ex_is_call_jal_o),
         .ex_ras_should_push_jalr_o(id_ex_ras_should_push_jalr_o),
         .ex_ras_should_pop_jalr_o (id_ex_ras_should_pop_jalr_o),
@@ -833,6 +838,7 @@ module open_risc_v (
         .dec_is_system_i     (id_ex_is_system_o),
         .dec_is_rv32m_i      (id_ex_is_rv32m_o),
         .dec_is_csr_op_i     (id_ex_is_csr_op_o),
+        .dec_is_clmulh_i     (id_ex_is_clmulh_o),
         .dec_is_call_jal_i   (id_ex_is_call_jal_o),
         .dec_ras_should_push_jalr_i(id_ex_ras_should_push_jalr_o),
         .dec_ras_should_pop_jalr_i (id_ex_ras_should_pop_jalr_o),
