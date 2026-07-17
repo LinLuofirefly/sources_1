@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_brev8_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,25 +102,19 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBKB BREV8 single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h13) &&
-             (inst_i[14:12] == 3'h5) &&
-             (inst_i[31:20] == 12'h687);
-     function automatic [31:0] bitmanip_compute;
-         input [31:0] value1;
-         input [31:0] value2;
-         integer bitmanip_i;
-         integer bitmanip_j;
-         begin
-             bitmanip_compute = 32'b0;
-             for (bitmanip_i = 0; bitmanip_i < 4; bitmanip_i = bitmanip_i + 1)
-                 for (bitmanip_j = 0; bitmanip_j < 8; bitmanip_j = bitmanip_j + 1)
-                     bitmanip_compute[bitmanip_i*8 + bitmanip_j] =
-                         value1[bitmanip_i*8 + (7-bitmanip_j)];
-         end
-     endfunction
-     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
+     // Zbkb brev8 语义：每个 8-bit 字节内部独立反转 bit 顺序。
+     // 这是纯固定布线，显式拼接比循环/动态索引更容易保持短组合路径；
+     // 结果只在 rd 写回路径被 valid 覆盖，不接入分支和 PC 重定向。
+     wire [31:0] brev8_result_w = {
+         alu_op1[24], alu_op1[25], alu_op1[26], alu_op1[27],
+         alu_op1[28], alu_op1[29], alu_op1[30], alu_op1[31],
+         alu_op1[16], alu_op1[17], alu_op1[18], alu_op1[19],
+         alu_op1[20], alu_op1[21], alu_op1[22], alu_op1[23],
+         alu_op1[8],  alu_op1[9],  alu_op1[10], alu_op1[11],
+         alu_op1[12], alu_op1[13], alu_op1[14], alu_op1[15],
+         alu_op1[0],  alu_op1[1],  alu_op1[2],  alu_op1[3],
+         alu_op1[4],  alu_op1[5],  alu_op1[6],  alu_op1[7]
+     };
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -255,9 +250,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_brev8_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = brev8_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin
