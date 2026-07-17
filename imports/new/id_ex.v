@@ -46,6 +46,7 @@ module id_ex (
     input  wire        ex_is_system_i,
     input  wire        ex_is_rv32m_i,
     input  wire        ex_is_csr_op_i,
+    input  wire        ex_is_sh2add_i,
     input  wire        ex_is_call_jal_i,
     input  wire        ex_ras_should_push_jalr_i,
     input  wire        ex_ras_should_pop_jalr_i,
@@ -92,6 +93,7 @@ module id_ex (
     (* extract_enable = "no" *) output reg        ex_is_system_o,
     (* extract_enable = "no" *) output reg        ex_is_rv32m_o,
     (* extract_enable = "no" *) output reg        ex_is_csr_op_o,
+    (* extract_enable = "no" *) output reg        ex_is_sh2add_o,
     (* extract_enable = "no" *) output reg        ex_is_call_jal_o,
     (* extract_enable = "no" *) output reg        ex_ras_should_push_jalr_o,
     (* extract_enable = "no" *) output reg        ex_ras_should_pop_jalr_o,
@@ -293,6 +295,13 @@ module id_ex (
         hold_flag_i  ? ex_is_csr_op_o :
                        ex_is_csr_op_i;
 
+    // sh2add 是单周期 Zba 写回类指令。flush 清零避免错误提交气泡，
+    // hold 保持当前 valid，保证流水线停顿时该指令不会丢失也不会重复进入 EX。
+    wire ex_is_sh2add_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_sh2add_o :
+                       ex_is_sh2add_i;
+
     wire ex_is_call_jal_next =
         flush_flag_i ? 1'b0 :
         hold_flag_i  ? ex_is_call_jal_o :
@@ -354,6 +363,7 @@ module id_ex (
             ex_is_system_o  <= 1'b0;
             ex_is_rv32m_o   <= 1'b0;
             ex_is_csr_op_o  <= 1'b0;
+            ex_is_sh2add_o  <= 1'b0;
             ex_is_call_jal_o <= 1'b0;
             ex_ras_should_push_jalr_o <= 1'b0;
             ex_ras_should_pop_jalr_o  <= 1'b0;
@@ -398,6 +408,7 @@ module id_ex (
             ex_is_system_o  <= ex_is_system_next;
             ex_is_rv32m_o   <= ex_is_rv32m_next;
             ex_is_csr_op_o  <= ex_is_csr_op_next;
+            ex_is_sh2add_o  <= ex_is_sh2add_next;
             ex_is_call_jal_o <= ex_is_call_jal_next;
             ex_ras_should_push_jalr_o <= ex_ras_should_push_jalr_next;
             ex_ras_should_pop_jalr_o  <= ex_ras_should_pop_jalr_next;
