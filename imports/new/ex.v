@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_ctz_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,23 +102,25 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBB CTZ single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h13) &&
-             (inst_i[14:12] == 3'h1) &&
-             (inst_i[31:20] == 12'h601);
-     function automatic [31:0] bitmanip_compute;
-         input [31:0] value1;
-         input [31:0] value2;
-         integer bitmanip_i;
-         begin
-             bitmanip_compute = 32'd32;
-             for (bitmanip_i = 31; bitmanip_i >= 0; bitmanip_i = bitmanip_i - 1)
-                 if (value1[bitmanip_i])
-                     bitmanip_compute = bitmanip_i;
-         end
-     endfunction
-     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
+     // Zbb ctz 语义：统计 rs1 从最低位开始连续 0 的个数，ctz(0)=32。
+     // 采用 16/8/4/2/1 分层检测，避免循环覆盖形成 32 级优先级链。
+     // 结果只影响 rd_data_o，不进入分支/JALR/PC redirect 控制锥。
+     wire ctz_lo16_zero = (alu_op1[15:0] == 16'b0);
+     wire [15:0] ctz_s16 = ctz_lo16_zero ? alu_op1[31:16] : alu_op1[15:0];
+     wire ctz_lo8_zero = (ctz_s16[7:0] == 8'b0);
+     wire [7:0] ctz_s8 = ctz_lo8_zero ? ctz_s16[15:8] : ctz_s16[7:0];
+     wire ctz_lo4_zero = (ctz_s8[3:0] == 4'b0);
+     wire [3:0] ctz_s4 = ctz_lo4_zero ? ctz_s8[7:4] : ctz_s8[3:0];
+     wire ctz_lo2_zero = (ctz_s4[1:0] == 2'b0);
+     wire [1:0] ctz_s2 = ctz_lo2_zero ? ctz_s4[3:2] : ctz_s4[1:0];
+     wire [5:0] ctz_count_w =
+         (alu_op1 == 32'b0) ? 6'd32 :
+         (ctz_lo16_zero ? 6'd16 : 6'd0) +
+         (ctz_lo8_zero  ? 6'd8  : 6'd0) +
+         (ctz_lo4_zero  ? 6'd4  : 6'd0) +
+         (ctz_lo2_zero  ? 6'd2  : 6'd0) +
+         (~ctz_s2[0]    ? 6'd1  : 6'd0);
+     wire [31:0] ctz_result_w = {26'b0, ctz_count_w};
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -253,9 +256,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_ctz_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = ctz_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin

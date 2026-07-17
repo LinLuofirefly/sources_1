@@ -44,6 +44,7 @@ module id (
     output wire        ex_is_system_o,
     output wire        ex_is_rv32m_o,
     output wire        ex_is_csr_op_o,
+    output wire        ex_is_ctz_o,
     output wire        ex_is_call_jal_o,
     output wire        ex_ras_should_push_jalr_o,
     output wire        ex_ras_should_pop_jalr_o,
@@ -66,6 +67,9 @@ module id (
     wire rd_is_link     = (rd == 5'b1) || (rd == 5'b101);
     wire rs1_is_link    = (rs1 == 5'b1) || (rs1 == 5'b101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
+    wire is_ctz         = (opcode == `INST_TYPE_I) &&
+                          (func3 == 3'b001) &&
+                          (inst_i[31:20] == 12'h601);
 
     assign rs1_addr_o = rs1;
     assign rs2_addr_o = rs2;
@@ -107,6 +111,9 @@ module id (
                                       ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
                                        (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
                                        (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    // Zbb ctz 标准编码：opcode=0010011, funct3=001, imm[11:0]=011000000001。
+    // 一元指令只依赖 rs1；ID 提前译码，EX 不再解析完整 inst_i。
+    assign ex_is_ctz_o              = is_ctz;
     assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
     assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
     assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
