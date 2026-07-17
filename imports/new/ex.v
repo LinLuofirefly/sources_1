@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_rol_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,12 +102,14 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBB ROL single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h33) &&
-             (inst_i[14:12] == 3'h1) &&
-             (inst_i[31:25] == 7'h30);
-     wire [31:0] bitmanip_result_w = (alu_op1 << alu_op2[4:0]) | (alu_op1 >> (5'd0 - alu_op2[4:0]));
+     // Zbb/Zbkb rol 语义：rd = rotate_left(rs1, rs2[4:0])。
+     // 显式处理旋转量 0，避免出现移位 32 的边界歧义；结果只进入写回路径，
+     // 不参与分支/JALR/PC redirect 控制锥。
+     wire [4:0] rol_shamt_w = alu_op2[4:0];
+     wire [4:0] rol_rshamt_w = 5'd0 - rol_shamt_w;
+     wire [31:0] rol_result_w =
+         (rol_shamt_w == 5'd0) ? alu_op1 :
+         ((alu_op1 << rol_shamt_w) | (alu_op1 >> rol_rshamt_w));
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -242,9 +245,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_rol_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = rol_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin
