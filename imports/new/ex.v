@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_clmulr_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -100,26 +101,6 @@ module ex (
      wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
-
-     // RV32 ZBC CLMULR single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h33) &&
-             (inst_i[14:12] == 3'h2) &&
-             (inst_i[31:25] == 7'h05);
-     function automatic [31:0] bitmanip_compute;
-         input [31:0] value1;
-         input [31:0] value2;
-         integer bitmanip_i;
-         reg [63:0] bitmanip_product;
-         begin
-             bitmanip_product = 64'b0;
-             for (bitmanip_i = 0; bitmanip_i < 32; bitmanip_i = bitmanip_i + 1)
-                 if (value2[bitmanip_i])
-                     bitmanip_product = bitmanip_product ^ ({32'b0, value1} << bitmanip_i);
-             bitmanip_compute = bitmanip_product[62:31];
-         end
-     endfunction
-     wire [31:0] bitmanip_result_w = bitmanip_compute(alu_op1, alu_op2);
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -170,12 +151,29 @@ module ex (
     reg  [31:0] rv32m_inst_r;
     reg  [4:0]  rv32m_rd_addr_r;
     reg         rv32m_rd_wen_r;
+    reg  [31:0] clmul_inst_r;
+    reg  [4:0]  clmul_rd_addr_r;
+    reg         clmul_rd_wen_r;
+    reg         clmul_busy_r;
+    reg         clmul_done_r;
+    reg  [5:0]  clmul_count_r;
+    reg  [63:0] clmul_acc_r;
+    reg  [63:0] clmul_a_shift_r;
+    reg  [31:0] clmul_b_shift_r;
+    reg  [31:0] clmul_result_r;
+    wire [63:0] clmul_acc_next_w =
+        clmul_b_shift_r[0] ? (clmul_acc_r ^ clmul_a_shift_r) : clmul_acc_r;
     // EX only launches the iterative unit once per decoded M instruction.
     // While busy is high, HDU freezes the front of the pipeline and EX emits NOP.
     wire        rv32m_iter_busy_w;
     wire        rv32m_iter_done_w;
     wire [31:0] rv32m_result_w;
-    wire rv32m_start = (kill_i == 1'b0) && dec_is_rv32m_i && (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0);
+    wire clmul_start = (kill_i == 1'b0) && dec_is_clmulr_i &&
+                       (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0) &&
+                       (clmul_busy_r == 1'b0) && (clmul_done_r == 1'b0);
+    wire rv32m_start = (kill_i == 1'b0) && dec_is_rv32m_i &&
+                       (rv32m_iter_busy_w == 1'b0) && (rv32m_iter_done_w == 1'b0) &&
+                       (clmul_busy_r == 1'b0) && (clmul_done_r == 1'b0);
 
     rv32m_iter rv32m_iter_inst (
         .clk    (clk),
@@ -189,8 +187,8 @@ module ex (
         .result_o(rv32m_result_w)
     );
 
-    assign rv32m_busy_o = rv32m_start || rv32m_iter_busy_w;
-    assign rv32m_done_o = rv32m_iter_done_w;
+    assign rv32m_busy_o = rv32m_start || rv32m_iter_busy_w || clmul_start || clmul_busy_r;
+    assign rv32m_done_o = rv32m_iter_done_w || clmul_done_r;
 
     wire [31:0] csr_rdata_w;
     wire [31:0] csr_trap_jump_addr_w;
@@ -213,12 +211,49 @@ module ex (
             rv32m_inst_r    <= `INST_NOP;
             rv32m_rd_addr_r <= 5'b0;
             rv32m_rd_wen_r  <= 1'b0;
+            clmul_inst_r    <= `INST_NOP;
+            clmul_rd_addr_r <= 5'b0;
+            clmul_rd_wen_r  <= 1'b0;
+            clmul_busy_r    <= 1'b0;
+            clmul_done_r    <= 1'b0;
+            clmul_count_r   <= 6'b0;
+            clmul_acc_r     <= 64'b0;
+            clmul_a_shift_r <= 64'b0;
+            clmul_b_shift_r <= 32'b0;
+            clmul_result_r  <= 32'b0;
         end else if (rv32m_start) begin
             // Latch writeback metadata so the result can be replayed after the
             // iterative unit finishes, even though ID/EX is stalled meanwhile.
             rv32m_inst_r    <= inst_i;
             rv32m_rd_addr_r <= rd_addr_i;
             rv32m_rd_wen_r  <= rd_wen_i;
+            clmul_done_r    <= 1'b0;
+        end else begin
+            clmul_done_r <= 1'b0;
+
+            if (clmul_start) begin
+                // clmulr 使用固定 32 拍 GF(2) 迭代乘法器，最终写回 product[62:31]。
+                // start 锁存输入，busy 期间忽略新 start，done 单拍，保证只提交一次。
+                clmul_inst_r    <= inst_i;
+                clmul_rd_addr_r <= rd_addr_i;
+                clmul_rd_wen_r  <= rd_wen_i;
+                clmul_busy_r    <= 1'b1;
+                clmul_count_r   <= 6'b0;
+                clmul_acc_r     <= 64'b0;
+                clmul_a_shift_r <= {32'b0, alu_op1};
+                clmul_b_shift_r <= alu_op2;
+            end else if (clmul_busy_r) begin
+                clmul_acc_r     <= clmul_acc_next_w;
+                clmul_a_shift_r <= clmul_a_shift_r << 1;
+                clmul_b_shift_r <= clmul_b_shift_r >> 1;
+                if (clmul_count_r == 6'd31) begin
+                    clmul_busy_r   <= 1'b0;
+                    clmul_done_r   <= 1'b1;
+                    clmul_result_r <= clmul_acc_next_w[62:31];
+                end else begin
+                    clmul_count_r <= clmul_count_r + 6'd1;
+                end
+            end
         end
     end
 
@@ -249,18 +284,18 @@ module ex (
             // Hide the in-flight M instruction from later stages until the
             // iterative unit produces a single-cycle done pulse.
             inst_o = `INST_NOP;
-        end else if (rv32m_done_o == 1'b1) begin
+        end else if (rv32m_iter_done_w == 1'b1) begin
             rd_addr_o = rv32m_rd_addr_r;
             rd_data_o = rv32m_result_w;
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
+        end else if (clmul_done_r == 1'b1) begin
+            rd_addr_o = clmul_rd_addr_r;
+            rd_data_o = clmul_result_r;
+            rd_wen_o  = clmul_rd_wen_r;
+            inst_o    = clmul_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
-                rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
-                rd_wen_o  = rd_wen_i;
-            end
-            else if (dec_is_op_imm_i) begin
+            if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};

@@ -44,6 +44,7 @@ module id (
     output wire        ex_is_system_o,
     output wire        ex_is_rv32m_o,
     output wire        ex_is_csr_op_o,
+    output wire        ex_is_clmulr_o,
     output wire        ex_is_call_jal_o,
     output wire        ex_ras_should_push_jalr_o,
     output wire        ex_ras_should_pop_jalr_o,
@@ -66,6 +67,9 @@ module id (
     wire rd_is_link     = (rd == 5'b1) || (rd == 5'b101);
     wire rs1_is_link    = (rs1 == 5'b1) || (rs1 == 5'b101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
+    wire is_clmulr      = (opcode == `INST_TYPE_R_M) &&
+                          (func3 == 3'b010) &&
+                          (func7 == 7'b0000101);
 
     assign rs1_addr_o = rs1;
     assign rs2_addr_o = rs2;
@@ -107,6 +111,9 @@ module id (
                                       ((func3 == `INST_CSRRW)  || (func3 == `INST_CSRRS)  ||
                                        (func3 == `INST_CSRRC)  || (func3 == `INST_CSRRWI) ||
                                        (func3 == `INST_CSRRSI) || (func3 == `INST_CSRRCI));
+    // Zbc clmulr 标准编码：opcode=0110011, funct3=010, funct7=0000101。
+    // 迭代 GF(2) 乘法器最终写回 product[62:31]，避免把大 XOR 网络放在 EX 单周期路径。
+    assign ex_is_clmulr_o           = is_clmulr;
     assign ex_is_call_jal_o         = (opcode == `INST_JAL) && rd_is_link;
     assign ex_ras_should_push_jalr_o = is_jalr_hint && rd_is_link;
     assign ex_ras_should_pop_jalr_o  = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
