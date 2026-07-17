@@ -52,6 +52,7 @@ module ex (
     input  wire        dec_is_system_i,
     input  wire        dec_is_rv32m_i,
     input  wire        dec_is_csr_op_i,
+    input  wire        dec_is_packh_i,
     input  wire        dec_is_call_jal_i,
     input  wire        dec_ras_should_push_jalr_i,
     input  wire        dec_ras_should_pop_jalr_i,
@@ -101,12 +102,9 @@ module ex (
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
 
-     // RV32 ZBKB PACKH single-instruction support.
-     wire bitmanip_match_w =
-             (inst_i[6:0] == 7'h33) &&
-             (inst_i[14:12] == 3'h7) &&
-             (inst_i[31:25] == 7'h04);
-     wire [31:0] bitmanip_result_w = {16'b0, alu_op2[7:0], alu_op1[7:0]};
+     // Zbkb packh 语义：rd = {16'b0, rs2[7:0], rs1[7:0]}。
+     // 固定拼接不增加通用 ALU 输入选择，也不接入分支/JALR 控制锥。
+     wire [31:0] packh_result_w = {16'b0, alu_op2[7:0], alu_op1[7:0]};
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] mem_addr           = fwd_ls_base_i + mem_offset_i;
@@ -242,9 +240,9 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else if (kill_i == 1'b0) begin
-            if (bitmanip_match_w) begin
+            if (dec_is_packh_i) begin
                 rd_addr_o = rd_addr_i;
-                rd_data_o = bitmanip_result_w;
+                rd_data_o = packh_result_w;
                 rd_wen_o  = rd_wen_i;
             end
             else if (dec_is_op_imm_i) begin
