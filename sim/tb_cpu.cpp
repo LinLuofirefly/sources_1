@@ -4,9 +4,10 @@
 // 功能:
 //   1. 驱动双时钟 (cpu_clk ~200MHz, clk_50Mhz 50MHz)
 //   2. 监控外设写总线，仅在 LED / SEG 被写入时打印日志
-//   3. +max_cycles=N 控制最大仿真周期
-//   4. 仿真结束时打印总周期数和结束原因
-//   5. 日志同时输出到终端和文件
+//   3. LED 写入 1 次且 SEG 写入 2 次后结束
+//   4. +max_cycles=N 可选调试保护
+//   5. 仿真结束时打印总周期数和结束原因
+//   6. 日志同时输出到终端和文件
 //   6. 性能统计 (可选): CPI, 分支预测, DCache, 停顿分析
 //
 // 用法:
@@ -28,7 +29,8 @@
 // ---------------------------------------------------------------------------
 // 全局配置
 // ---------------------------------------------------------------------------
-static uint64_t g_max_cycles  = 200000000000ULL; // 200B 周期
+static bool g_max_cycles_en   = false;
+static uint64_t g_max_cycles  = 0;
 static const char *g_log_path = "sim/logs/sim.log";
 static bool g_file_log        = true;
 static bool g_expect_led_en   = false;
@@ -42,6 +44,8 @@ static uint64_t g_trace_end = UINT64_MAX;
 
 static const uint32_t LED_ADDR = 0x80200040u;
 static const uint32_t SEG_ADDR = 0x80200020u;
+static const int REQUIRED_LED_WRITES = 1;
+static const int REQUIRED_SEG_WRITES = 2;
 
 // Performance statistics configuration
 static bool g_perf_enabled = true;
@@ -684,6 +688,7 @@ struct CpuPerfStats {
 static void parse_args(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "+max_cycles=", 12) == 0) {
+            g_max_cycles_en = true;
             g_max_cycles = strtoull(argv[i] + 12, nullptr, 10);
         } else if (strncmp(argv[i], "+log=", 5) == 0) {
             g_log_path = argv[i] + 5;
@@ -765,7 +770,11 @@ int main(int argc, char **argv, char **env) {
     time_t start_time = time(nullptr);
     log_printf("========================================\n");
     log_printf("Simulation started: %s", ctime(&start_time));
-    log_printf("Max cycles:   %llu\n", (unsigned long long)g_max_cycles);
+    if (g_max_cycles_en) {
+        log_printf("Max cycles:   %llu\n", (unsigned long long)g_max_cycles);
+    } else {
+        log_printf("Max cycles:   disabled\n");
+    }
     log_printf("Log file:     %s\n", g_file_log ? g_log_path : "(disabled)");
     log_printf("Perf stats:   %s\n", g_perf_enabled ? "enabled" : "disabled");
     if (g_perf_enabled) {
@@ -802,7 +811,7 @@ int main(int argc, char **argv, char **env) {
     int      shift_commit_count = 0;
     bool     shift_late_seen   = false;
 
-    const char *end_reason     = "max_cycles reached";
+    const char *end_reason     = "waiting for LED write >=1 and SEG write >=2";
 
     // Performance statistics
     CpuPerfStats perf;
@@ -812,7 +821,8 @@ int main(int argc, char **argv, char **env) {
     // =======================================================================
     // 主循环
     // =======================================================================
-    while (!Verilated::gotFinish() && cycle < g_max_cycles) {
+    while (!Verilated::gotFinish() &&
+           (!g_max_cycles_en || cycle < g_max_cycles)) {
 
         uint64_t next_event = (next_cpu_toggle < next_50mhz_toggle)
                               ? next_cpu_toggle : next_50mhz_toggle;
@@ -888,7 +898,8 @@ int main(int argc, char **argv, char **env) {
                             last_seg_val = wdata;
                         }
                         // 结束条件: LED 写入 >= 1 且 SEG 写入 >= 2
-                        if (led_write_count >= 1 && seg_write_count >= 2) {
+                        if (led_write_count >= REQUIRED_LED_WRITES &&
+                            seg_write_count >= REQUIRED_SEG_WRITES) {
                             end_reason = "LED write >=1 and SEG write >=2 both reached";
                             sim_state = FINISHED;
                             goto sim_end;
@@ -950,6 +961,8 @@ int main(int argc, char **argv, char **env) {
 sim_end:
     if (Verilated::gotFinish()) {
         end_reason = "$finish called in RTL";
+    } else if (g_max_cycles_en && cycle >= g_max_cycles) {
+        end_reason = "max_cycles reached";
     }
 
     // =======================================================================

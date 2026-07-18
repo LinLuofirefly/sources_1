@@ -11,7 +11,7 @@
 # ===========================================================================
 
 param(
-    [uint64]$MaxCycles = 100000000,
+    [string]$MaxCycles = "",
     [switch]$Wave,
     [switch]$Clean
 )
@@ -33,8 +33,16 @@ if ($Clean) {
 $WslProject = "/mnt/c/Users/ACER/Desktop/Linluofirefly/sources_1"
 $WaveFlag = if ($Wave) { "--wave" } else { "" }
 
-Write-Host "=== Building and running via WSL (max_cycles=$MaxCycles) ==="
-$WslCmd = "cd $WslProject && bash sim/run.sh --max-cycles $MaxCycles $WaveFlag"
+if ($MaxCycles) {
+    $MaxCyclesArg = "--max-cycles $MaxCycles"
+    $RunLabel = "max_cycles=$MaxCycles"
+} else {
+    $MaxCyclesArg = ""
+    $RunLabel = "LED>=1 SEG>=2"
+}
+
+Write-Host "=== Building and running via WSL ($RunLabel) ==="
+$WslCmd = "cd $WslProject && bash sim/run.sh $MaxCyclesArg $WaveFlag"
 wsl -- bash -c "$WslCmd"
 
 Write-Host "=== Log file: sim\logs\sim.log ==="

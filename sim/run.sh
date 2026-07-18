@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-MAX_CYCLES=100000000
+MAX_CYCLES=
 WAVE=0
 CLEAN=0
 
@@ -83,10 +83,18 @@ echo "=== Build done ==="
 # ---- 运行 ----
 mkdir -p sim/logs sim/waves
 
-echo "=== Running simulation (max_cycles=$MAX_CYCLES) ==="
+if [[ -n "$MAX_CYCLES" ]]; then
+    RUN_ARGS=(+max_cycles="$MAX_CYCLES" +log=sim/logs/sim.log)
+    RUN_LABEL="max_cycles=$MAX_CYCLES"
+else
+    RUN_ARGS=(+log=sim/logs/sim.log)
+    RUN_LABEL="LED>=1 SEG>=2"
+fi
+
+echo "=== Running simulation ($RUN_LABEL) ==="
 echo "=== Start time: $(date) ==="
 
-./sim/obj_dir/Vsim_wrapper +max_cycles="$MAX_CYCLES" +log=sim/logs/sim.log
+./sim/obj_dir/Vsim_wrapper "${RUN_ARGS[@]}"
 
 echo "=== End time: $(date) ==="
 echo "=== Log file: sim/logs/sim.log ==="

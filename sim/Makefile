@@ -3,8 +3,8 @@
 #
 # 用法 (必须从工程根目录运行):
 #   make -f sim/Makefile build                    编译 Verilator 仿真
-#   make -f sim/Makefile run                      运行仿真 (默认 200M 周期)
-#   make -f sim/Makefile run MAX_CYCLES=50000000  自定义最大周期
+#   make -f sim/Makefile run                      运行仿真 (LED>=1 且 SEG>=2 后结束)
+#   make -f sim/Makefile run MAX_CYCLES=50000000  可选最大周期保护
 #   make -f sim/Makefile wave                     编译带波形输出的仿真并运行
 #   make -f sim/Makefile clean                    清理生成文件
 #
@@ -18,8 +18,16 @@
 VERILATOR ?= verilator
 
 # 仿真参数
-MAX_CYCLES ?= 100000000
+MAX_CYCLES ?=
 LOG_FILE   ?= sim/logs/sim.log
+
+RUN_ARGS := +log=$(LOG_FILE)
+ifneq ($(strip $(MAX_CYCLES)),)
+RUN_ARGS += +max_cycles=$(MAX_CYCLES)
+RUN_LABEL := max_cycles=$(MAX_CYCLES)
+else
+RUN_LABEL := LED>=1 SEG>=2
+endif
 
 # 目录 (相对于工程根目录)
 OBJ_DIR    := sim/obj_dir
@@ -99,19 +107,19 @@ build:
 # ---- 运行仿真 ----
 # 从工程根目录运行, 保证 $readmemh("sim/irom.mem") 路径正确
 run: build
-	@echo "=== Running simulation (max_cycles=$(MAX_CYCLES)) ==="
+	@echo "=== Running simulation ($(RUN_LABEL)) ==="
 	@echo "=== Start time: $$(date) ==="
 	@mkdir -p sim/logs sim/waves
-	./$(OBJ_DIR)/$(VTOP) +max_cycles=$(MAX_CYCLES) +log=$(LOG_FILE)
+	./$(OBJ_DIR)/$(VTOP) $(RUN_ARGS)
 	@echo "=== End time: $$(date) ==="
 	@echo "=== Log: $(LOG_FILE) ==="
 
 # ---- 带波形运行 ----
 wave: VFLAGS += --trace
 wave: build
-	@echo "=== Running simulation with waveform (max_cycles=$(MAX_CYCLES)) ==="
+	@echo "=== Running simulation with waveform ($(RUN_LABEL)) ==="
 	@mkdir -p sim/logs sim/waves
-	./$(OBJ_DIR)/$(VTOP) +max_cycles=$(MAX_CYCLES) +log=$(LOG_FILE)
+	./$(OBJ_DIR)/$(VTOP) $(RUN_ARGS)
 	@echo "=== Log: $(LOG_FILE) ==="
 
 # ---- 清理 ----

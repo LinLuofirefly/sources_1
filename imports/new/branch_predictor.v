@@ -8,7 +8,6 @@
 //   - BHT：2-bit 饱和计数器，结合 GHR 做 gshare 索引；
 //   - BTB：request-stage 目标缓存，用于同步 IROM 请求阶段提前重定向；
 //   - RAS：返回地址栈，用于 JAL/JALR 调用返回预测；
-//   - 可选 loop predictor：默认关闭，保留结构用于实验。
 //
 // 预测分两条路径：
 //   1. req_*：PC 请求阶段直接查 BTB/BHT，供 open_risc_v 早重定向；
@@ -17,10 +16,6 @@
 module branch_predictor #(
     parameter BHT_ADDR_WIDTH = `BP_GHR_WIDTH,
     parameter BHT_SIZE = (1 << BHT_ADDR_WIDTH),
-    parameter LOOP_ADDR_WIDTH = 4,
-    parameter LOOP_COUNT_WIDTH = 10,
-    parameter LOOP_SIZE = (1 << LOOP_ADDR_WIDTH),
-    parameter ENABLE_LOOP_PRED = 1'b0,
     parameter BTB_ADDR_WIDTH = 6,
     parameter BTB_SIZE = (1 << BTB_ADDR_WIDTH),
     parameter RAS_DEPTH = 32,
@@ -62,8 +57,6 @@ module branch_predictor #(
     localparam [1:0] WEAKLY_NOT_TAKEN   = 2'b01;
     localparam [1:0] WEAKLY_TAKEN       = 2'b10;
     localparam [1:0] STRONGLY_TAKEN     = 2'b11;
-    localparam [1:0] LOOP_CONF_MAX      = 2'b11;
-    localparam [LOOP_COUNT_WIDTH-1:0] LOOP_COUNT_MAX = {LOOP_COUNT_WIDTH{1'b1}};
     localparam BTB_TAG_WIDTH = 32 - BTB_ADDR_WIDTH - 2;
 
     localparam [RAS_PTR_WIDTH-1:0] RAS_LAST_PTR    = {RAS_PTR_WIDTH{1'b1}};
@@ -74,12 +67,6 @@ module branch_predictor #(
    (* ram_style = "distributed" *) reg       btb_valid [0:BTB_SIZE-1];
    (* ram_style = "distributed" *) reg [BTB_TAG_WIDTH-1:0] btb_tag [0:BTB_SIZE-1];
    (* ram_style = "distributed" *) reg [31:0] btb_target [0:BTB_SIZE-1];
-   (* ram_style = "distributed" *) reg       loop_valid [0:LOOP_SIZE-1];
-   (* ram_style = "distributed" *) reg [31:0] loop_tag [0:LOOP_SIZE-1];
-   (* ram_style = "distributed" *) reg       loop_dir [0:LOOP_SIZE-1];
-   (* ram_style = "distributed" *) reg [1:0] loop_conf [0:LOOP_SIZE-1];
-   (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_iter_count [0:LOOP_SIZE-1];
-   (* ram_style = "distributed" *) reg [LOOP_COUNT_WIDTH-1:0] loop_trip_count [0:LOOP_SIZE-1];
    reg [BHT_ADDR_WIDTH-1:0] ghr_r;
    reg [31:0] ras [0:RAS_DEPTH-1];
    reg [RAS_PTR_WIDTH-1:0] ras_sp_r;
@@ -95,13 +82,6 @@ module branch_predictor #(
         end
    endfunction
 
-   function [LOOP_ADDR_WIDTH-1:0] loop_hash;
-        input [31:0] pc;
-        begin
-            loop_hash = pc[LOOP_ADDR_WIDTH+1:2] ^ pc[(2*LOOP_ADDR_WIDTH)+1:LOOP_ADDR_WIDTH+2];
-        end
-   endfunction
-
    wire [6:0] opcode = if_inst_i[6:0];
    wire [2:0] funct3 = if_inst_i[14:12];
    wire [4:0] rd     = if_inst_i[11:7];
@@ -113,8 +93,6 @@ module branch_predictor #(
     wire [BHT_ADDR_WIDTH-1:0] pred_idx      = pred_pc_idx ^ ghr_r;
     wire [BHT_ADDR_WIDTH-1:0] req_pred_idx  = req_pc_idx ^ ghr_r;
    wire [BHT_ADDR_WIDTH-1:0] update_idx    = update_pc_idx ^ update_ghr_i;
-   wire [LOOP_ADDR_WIDTH-1:0] loop_pred_idx = loop_hash(if_pc_i);
-    wire [LOOP_ADDR_WIDTH-1:0] loop_update_idx = loop_hash(update_pc_i);
     wire [BTB_ADDR_WIDTH-1:0] req_btb_idx = req_pc_i[BTB_ADDR_WIDTH+1:2];
     wire [BTB_ADDR_WIDTH-1:0] update_btb_idx = update_pc_i[BTB_ADDR_WIDTH+1:2];
 
@@ -137,30 +115,15 @@ module branch_predictor #(
     wire ras_pred_valid =
         ENABLE_JALR_RAS_PRED && ras_pred_pop && ras_nonempty;
 
-    wire loop_pred_hit =
-        ENABLE_LOOP_PRED &&
-        btfnt_taken &&
-        loop_valid[loop_pred_idx] &&
-        (loop_tag[loop_pred_idx] == if_pc_i) &&
-        (loop_conf[loop_pred_idx] == LOOP_CONF_MAX);
-    wire loop_pred_exit =
-        (loop_trip_count[loop_pred_idx] != {LOOP_COUNT_WIDTH{1'b0}}) &&
-        (loop_iter_count[loop_pred_idx] == loop_trip_count[loop_pred_idx]);
-    wire loop_pred_taken_w =
-        loop_pred_exit ? ~loop_dir[loop_pred_idx] : loop_dir[loop_pred_idx];
-
     // BHT 未训练时使用 BTFNT：向后分支默认 taken，向前分支默认 not-taken。
     wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
     wire req_branch_bht_pred_taken_w =
         bht_valid[req_pred_idx] ? bht[req_pred_idx][1] :
         (btb_target[req_btb_idx] < req_pc_i);
-    wire branch_pred_taken_w  = loop_pred_hit ? loop_pred_taken_w : branch_bht_pred_taken_w;
+    wire branch_pred_taken_w  = branch_bht_pred_taken_w;
     wire [31:0] branch_pred_target_w = if_pc_i + b_imm;
     wire [31:0] jal_pred_target_w    = if_pc_i + j_imm;
     wire [31:0] jalr_pred_target_w   = ras[ras_top_idx];
-    wire loop_update_hit =
-        loop_valid[loop_update_idx] && (loop_tag[loop_update_idx] == update_pc_i);
-
     integer i;
     integer j;
 
@@ -182,14 +145,6 @@ module branch_predictor #(
             btb_valid[j] = 1'b0;
             btb_tag[j] = {BTB_TAG_WIDTH{1'b0}};
             btb_target[j] = 32'b0;
-        end
-        for (i = 0; i < LOOP_SIZE; i = i + 1) begin
-            loop_valid[i] = 1'b0;
-            loop_tag[i] = 32'b0;
-            loop_dir[i] = 1'b0;
-            loop_conf[i] = 2'b00;
-            loop_iter_count[i] = {LOOP_COUNT_WIDTH{1'b0}};
-            loop_trip_count[i] = {LOOP_COUNT_WIDTH{1'b0}};
         end
     end
 
@@ -216,33 +171,6 @@ module branch_predictor #(
 
                 ghr_r <= {ghr_r[BHT_ADDR_WIDTH-2:0], actual_taken_i};
 
-                if (!loop_update_hit) begin
-                    loop_valid[loop_update_idx] <= 1'b1;
-                    loop_tag[loop_update_idx] <= update_pc_i;
-                    loop_dir[loop_update_idx] <= actual_taken_i;
-                    loop_conf[loop_update_idx] <= 2'b00;
-                    loop_iter_count[loop_update_idx] <= {{(LOOP_COUNT_WIDTH-1){1'b0}}, 1'b1};
-                    loop_trip_count[loop_update_idx] <= {LOOP_COUNT_WIDTH{1'b0}};
-                end else if (actual_taken_i == loop_dir[loop_update_idx]) begin
-                    if (loop_iter_count[loop_update_idx] != LOOP_COUNT_MAX) begin
-                        loop_iter_count[loop_update_idx] <= loop_iter_count[loop_update_idx] + 1'b1;
-                    end
-                end else begin
-                    if (loop_iter_count[loop_update_idx] != {LOOP_COUNT_WIDTH{1'b0}}) begin
-                        if ((loop_trip_count[loop_update_idx] == loop_iter_count[loop_update_idx]) &&
-                            (loop_trip_count[loop_update_idx] != {LOOP_COUNT_WIDTH{1'b0}})) begin
-                            if (loop_conf[loop_update_idx] != LOOP_CONF_MAX) begin
-                                loop_conf[loop_update_idx] <= loop_conf[loop_update_idx] + 1'b1;
-                            end
-                        end else begin
-                            loop_trip_count[loop_update_idx] <= loop_iter_count[loop_update_idx];
-                            if (loop_conf[loop_update_idx] != 2'b00) begin
-                                loop_conf[loop_update_idx] <= loop_conf[loop_update_idx] - 1'b1;
-                            end
-                        end
-                    end
-                    loop_iter_count[loop_update_idx] <= {LOOP_COUNT_WIDTH{1'b0}};
-                end
             end
 
             // RAS 同拍 pop/push 时先 pop 再 push，支持 ret 后紧跟 call 的嵌套模式。
