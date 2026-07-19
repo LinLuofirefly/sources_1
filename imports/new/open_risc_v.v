@@ -107,6 +107,7 @@ module open_risc_v (
     wire        id_dec_func7_bit5_o;
     wire        id_dec_func7_is_r_o;
     wire        id_dec_func7_is_sub_o;
+    wire        id_dec_is_ctz_o;
     wire        id_dec_is_op_imm_o;
     wire        id_dec_is_op_reg_o;
     wire        id_dec_is_branch_o;
@@ -164,6 +165,7 @@ module open_risc_v (
     wire        id_ex_func7_bit5_o;
     wire        id_ex_func7_is_r_o;
     wire        id_ex_func7_is_sub_o;
+    wire        id_ex_is_ctz_o;
     wire        id_ex_is_op_imm_o;
     wire        id_ex_is_op_reg_o;
     wire        id_ex_is_branch_o;
@@ -321,7 +323,8 @@ module open_risc_v (
          ((id_dec_func3_o == `INST_SR) &&
           (id_dec_func7_is_r_o || id_dec_func7_is_sub_o)));
 
-    wire id_dec_is_shift = id_dec_is_shift_imm || id_dec_is_shift_reg;
+    wire id_dec_has_deep_alu =
+        id_dec_is_shift_imm || id_dec_is_shift_reg || id_dec_is_ctz_o;
 
     // The EX load address is now physically driven by a non-late forwarding
     // mux.  Ordinary ALU/store consumers retain the hit bypass; a dependent
@@ -335,7 +338,7 @@ module open_risc_v (
         !id_dec_is_branch_o &&
         !id_dec_is_jalr_o &&
         !id_dec_is_load_o &&
-        !id_dec_is_shift;
+        !id_dec_has_deep_alu;
 
     assign mem_rd_reg_o  = ex_is_load_o;
     assign mem_rd_addr_o = ex_rd_mem_addr_o;
@@ -618,6 +621,7 @@ module open_risc_v (
         .ex_func7_bit5_o (id_dec_func7_bit5_o),
         .ex_func7_is_r_o (id_dec_func7_is_r_o),
         .ex_func7_is_sub_o(id_dec_func7_is_sub_o),
+        .ex_is_ctz_o     (id_dec_is_ctz_o),
         .ex_is_op_imm_o  (id_dec_is_op_imm_o),
         .ex_is_op_reg_o  (id_dec_is_op_reg_o),
         .ex_is_branch_o  (id_dec_is_branch_o),
@@ -695,6 +699,7 @@ module open_risc_v (
         .ex_func7_bit5_i (id_dec_func7_bit5_o),
         .ex_func7_is_r_i (id_dec_func7_is_r_o),
         .ex_func7_is_sub_i(id_dec_func7_is_sub_o),
+        .ex_is_ctz_i     (id_dec_is_ctz_o),
         .ex_is_op_imm_i  (id_dec_is_op_imm_o),
         .ex_is_op_reg_i  (id_dec_is_op_reg_o),
         .ex_is_branch_i  (id_dec_is_branch_o),
@@ -738,6 +743,7 @@ module open_risc_v (
         .ex_func7_bit5_o (id_ex_func7_bit5_o),
         .ex_func7_is_r_o (id_ex_func7_is_r_o),
         .ex_func7_is_sub_o(id_ex_func7_is_sub_o),
+        .ex_is_ctz_o     (id_ex_is_ctz_o),
         .ex_is_op_imm_o  (id_ex_is_op_imm_o),
         .ex_is_op_reg_o  (id_ex_is_op_reg_o),
         .ex_is_branch_o  (id_ex_is_branch_o),
@@ -846,6 +852,7 @@ module open_risc_v (
         .dec_func7_bit5_i    (id_ex_func7_bit5_o),
         .dec_func7_is_r_i    (id_ex_func7_is_r_o),
         .dec_func7_is_sub_i  (id_ex_func7_is_sub_o),
+        .dec_is_ctz_i        (id_ex_is_ctz_o),
         .dec_is_op_imm_i     (id_ex_is_op_imm_o),
         .dec_is_op_reg_i     (id_ex_is_op_reg_o),
         .dec_is_branch_i     (id_ex_is_branch_o),

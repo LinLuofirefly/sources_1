@@ -32,6 +32,7 @@ module id (
     output wire        ex_func7_bit5_o,
     output wire        ex_func7_is_r_o,
     output wire        ex_func7_is_sub_o,
+    output wire        ex_is_ctz_o,
     output wire        ex_is_op_imm_o,
     output wire        ex_is_op_reg_o,
     output wire        ex_is_branch_o,
@@ -63,6 +64,9 @@ module id (
     wire system_use_rs1 = (opcode == `INST_SYSTEM) &&
                           ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
     wire is_system      = (opcode == `INST_SYSTEM);
+    wire is_ctz         = (opcode == `INST_TYPE_I) &&
+                          (func3 == `INST_SLLI) &&
+                          (imm == `INST_CTZ_IMM);
     wire rd_is_link     = (rd == 5'b1)||(rd == 5'b00101);
     wire rs1_is_link    = (rs1 == 5'b1)||(rs1 == 5'b00101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
@@ -92,6 +96,7 @@ module id (
     assign ex_func7_bit5_o          = func7[5];
     assign ex_func7_is_r_o          = (func7 == `INST_FUNC7_R);
     assign ex_func7_is_sub_o        = (func7 == `INST_FUNC7_SUB);
+    assign ex_is_ctz_o              = is_ctz;
     assign ex_is_op_imm_o           = (opcode == `INST_TYPE_I);
     assign ex_is_op_reg_o           = (opcode == `INST_TYPE_R_M);
     assign ex_is_branch_o           = (opcode == `INST_TYPE_B);

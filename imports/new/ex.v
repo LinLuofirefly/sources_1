@@ -1,6 +1,72 @@
 `timescale 1ns / 1ps
 `include "defines.v"
 
+// 32-bit trailing-zero counter implemented as a balanced priority tree.
+//
+// Each 4-bit leaf computes valid + a local two-bit count in parallel.  Three
+// merge levels then select the lowest valid nibble.  Invalid subtrees always
+// carry a zero index, so the root valid bit encodes the all-zero result (32)
+// without placing another wide mux after the tree.
+module ctz32_tree (
+    input  wire [31:0] value_i,
+    output wire [31:0] count_o
+);
+    wire [7:0]  nibble_valid;
+    wire [15:0] nibble_count;
+    wire [3:0]  byte_valid;
+    wire [11:0] byte_count;
+    wire [1:0]  half_valid;
+    wire [7:0]  half_count;
+    wire        root_valid;
+    wire [4:0]  root_count;
+
+    genvar nibble_idx;
+    generate
+        for (nibble_idx = 0; nibble_idx < 8; nibble_idx = nibble_idx + 1) begin : gen_ctz_nibble
+            assign nibble_valid[nibble_idx] =
+                |value_i[nibble_idx*4 +: 4];
+            assign nibble_count[nibble_idx*2] =
+                (~value_i[nibble_idx*4] & value_i[nibble_idx*4 + 1]) |
+                (~value_i[nibble_idx*4] & ~value_i[nibble_idx*4 + 1] &
+                 ~value_i[nibble_idx*4 + 2] & value_i[nibble_idx*4 + 3]);
+            assign nibble_count[nibble_idx*2 + 1] =
+                ~value_i[nibble_idx*4] & ~value_i[nibble_idx*4 + 1] &
+                (value_i[nibble_idx*4 + 2] | value_i[nibble_idx*4 + 3]);
+        end
+    endgenerate
+
+    genvar byte_idx;
+    generate
+        for (byte_idx = 0; byte_idx < 4; byte_idx = byte_idx + 1) begin : gen_ctz_byte
+            assign byte_valid[byte_idx] =
+                nibble_valid[byte_idx*2] | nibble_valid[byte_idx*2 + 1];
+            assign byte_count[byte_idx*3 +: 3] = nibble_valid[byte_idx*2]
+                ? {1'b0, nibble_count[byte_idx*4 +: 2]}
+                : {nibble_valid[byte_idx*2 + 1],
+                   nibble_count[byte_idx*4 + 2 +: 2]};
+        end
+    endgenerate
+
+    genvar half_idx;
+    generate
+        for (half_idx = 0; half_idx < 2; half_idx = half_idx + 1) begin : gen_ctz_half
+            assign half_valid[half_idx] =
+                byte_valid[half_idx*2] | byte_valid[half_idx*2 + 1];
+            assign half_count[half_idx*4 +: 4] = byte_valid[half_idx*2]
+                ? {1'b0, byte_count[half_idx*6 +: 3]}
+                : {byte_valid[half_idx*2 + 1],
+                   byte_count[half_idx*6 + 3 +: 3]};
+        end
+    endgenerate
+
+    assign root_valid = half_valid[0] | half_valid[1];
+    assign root_count = half_valid[0]
+        ? {1'b0, half_count[3:0]}
+        : {half_valid[1], half_count[7:4]};
+
+    assign count_o = {26'b0, ~root_valid, root_count};
+endmodule
+
 module ex (
     input  wire        clk,
     input  wire        rst,
@@ -41,6 +107,7 @@ module ex (
     input  wire        dec_func7_bit5_i,
     input  wire        dec_func7_is_r_i,
     input  wire        dec_func7_is_sub_i,
+    input  wire        dec_is_ctz_i,
     input  wire        dec_is_op_imm_i,
     input  wire        dec_is_op_reg_i,
     input  wire        dec_is_branch_i,
@@ -101,6 +168,12 @@ module ex (
      wire [31:0] op1_i_shift_left_op2_i  = alu_op1 << alu_op2[4:0];
      wire [31:0] op1_i_shift_right_op2_i = alu_op1 >> alu_op2[4:0];
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
+     wire [31:0] ctz_result;
+
+     ctz32_tree ctz32_tree_inst (
+         .value_i(alu_op1),
+         .count_o(ctz_result)
+     );
 
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] load_mem_addr      = fwd_load_base_i + mem_offset_i;
@@ -243,7 +316,9 @@ module ex (
             inst_o    = rv32m_inst_r;
         end else begin
             if (dec_is_op_imm_i) begin
-                    case (func3)
+                    if (dec_is_ctz_i) begin
+                        rd_data_o = ctz_result;
+                    end else case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
                         `INST_SLTIU: rd_data_o = {31'b0, alu_less_unsigned};

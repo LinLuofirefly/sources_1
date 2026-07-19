@@ -34,6 +34,7 @@ module id_ex (
     input  wire        ex_func7_bit5_i,
     input  wire        ex_func7_is_r_i,
     input  wire        ex_func7_is_sub_i,
+    input  wire        ex_is_ctz_i,
     input  wire        ex_is_op_imm_i,
     input  wire        ex_is_op_reg_i,
     input  wire        ex_is_branch_i,
@@ -80,6 +81,7 @@ module id_ex (
      output reg        ex_func7_bit5_o,
      output reg        ex_func7_is_r_o,
      output reg        ex_func7_is_sub_o,
+     output reg        ex_is_ctz_o,
      output reg        ex_is_op_imm_o,
      output reg        ex_is_op_reg_o,
      output reg        ex_is_branch_o,
@@ -233,6 +235,11 @@ module id_ex (
         hold_flag_i  ? ex_func7_is_sub_o :
                        ex_func7_is_sub_i;
 
+    wire ex_is_ctz_next =
+        flush_flag_i ? 1'b0 :
+        hold_flag_i  ? ex_is_ctz_o :
+                       ex_is_ctz_i;
+
     wire ex_is_op_imm_next =
         flush_flag_i ? 1'b0 :
         hold_flag_i  ? ex_is_op_imm_o :
@@ -342,6 +349,7 @@ module id_ex (
             ex_func7_bit5_o <= 1'b0;
             ex_func7_is_r_o <= 1'b0;
             ex_func7_is_sub_o <= 1'b0;
+            ex_is_ctz_o     <= 1'b0;
             ex_is_op_imm_o  <= 1'b0;
             ex_is_op_reg_o  <= 1'b0;
             ex_is_branch_o  <= 1'b0;
@@ -386,6 +394,7 @@ module id_ex (
             ex_func7_bit5_o <= ex_func7_bit5_next;
             ex_func7_is_r_o <= ex_func7_is_r_next;
             ex_func7_is_sub_o <= ex_func7_is_sub_next;
+            ex_is_ctz_o     <= ex_is_ctz_next;
             ex_is_op_imm_o  <= ex_is_op_imm_next;
             ex_is_op_reg_o  <= ex_is_op_reg_next;
             ex_is_branch_o  <= ex_is_branch_next;
