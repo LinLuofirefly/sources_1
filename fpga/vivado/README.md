@@ -10,6 +10,7 @@
 - `new/perip_bridge.sv`、`new/dram_driver.sv`：UART、LED、数码管和 DRAM 外设
 - `ip/`：PLL、IROM、DRAM 的 Vivado IP 配置
 - `software/rtthread_nano/step8/`：RT-Thread Nano BSP 和普通线程应用
+- `software/rtthread_nano/coremark/`：RT-Thread Nano + CoreMark 上板固件
 - `fpga/vivado/`：正式 bit 流构建、报告和下载脚本
 
 仿真 testbench、`.mem`、Verilator/XSim 输出不会参与 bit 流综合。真正进入 FPGA 的是可综合 RTL、三个 IP、XDC 约束，以及写进 IROM/DRAM BRAM 初始化内容的固件。
@@ -29,6 +30,19 @@ software/rtthread_nano/step8/build/fpga/irom.coe
 software/rtthread_nano/step8/build/fpga/dram.coe
 software/rtthread_nano/step8/build/fpga/rtthread_nano.elf
 software/rtthread_nano/step8/build/fpga/rtthread_nano.dis
+```
+
+生成包含 RT-Thread 和 CoreMark 的上板固件：
+
+```powershell
+wsl bash -lc "make -C /mnt/c/Users/hp/Downloads/digital_twin/digital_twin.srcs/sources_1/software/rtthread_nano/coremark -B BUILD_DIR=build/fpga TIMER_PERIOD_CYCLES=1900000 COREMARK_ITERATIONS=10000 OPT_FLAGS=-O1"
+```
+
+对应的初始化文件位于：
+
+```text
+software/rtthread_nano/coremark/build/fpga/irom.coe
+software/rtthread_nano/coremark/build/fpga/dram.coe
 ```
 
 ## 2. 先做快速配置检查
@@ -55,6 +69,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -FirmwareDir .\software\rtthread_nano\step8\build\fpga `
   -FrequencyMHz 190 `
   -Name digital_twin_rtthread_nano_190MHz
+```
+
+RT-Thread Nano + CoreMark：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\fpga\vivado\build_bitstream.ps1 `
+  -FirmwareDir .\software\rtthread_nano\coremark\build\fpga `
+  -FrequencyMHz 190 `
+  -Name digital_twin_rtthread_coremark_190MHz
 ```
 
 输出默认在固件目录的 `vivado_190_000MHz/` 下：
