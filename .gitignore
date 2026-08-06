@@ -19,3 +19,13 @@ xvlog.pb
 # Native simulation build byproducts
 *.sdb
 *.rlx
+/new/*.out
+
+# Local simulation logs and generated run trees
+/sim/logs/
+/sim/runs/
+/sim/vivado_opt_*/
+
+# Reproducible firmware/FPGA build products (sources and scripts stay tracked)
+/software/rtthread_nano/**/build*/
+/software/rtthread_nano/**/vivado_*MHz/

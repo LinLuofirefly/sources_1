@@ -19,7 +19,10 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-module perip_bridge(
+module perip_bridge #(
+    parameter integer P_CPU_CLK_HZ     = 257142857,
+    parameter integer P_UART_BAUD_RATE = 115200
+)(
     input  logic         clk				,
     input  logic         cnt_clk			,
     input  logic         rst                ,
@@ -37,7 +40,8 @@ module perip_bridge(
     input  logic [7:0]   virtual_key_input	,	
 
 	output logic [39:0]  virtual_seg_output	,
-    output logic [31:0]  virtual_led_output
+    output logic [31:0]  virtual_led_output,
+    output logic         uart_tx_output
 );
     localparam DRAM_ADDR_START = 32'h8010_0000;
     localparam DRAM_ADDR_END   = 32'h8013_FFFF;
@@ -47,8 +51,13 @@ module perip_bridge(
     localparam SEG_ADDR  = 32'h8020_0020;  // seg
     localparam LED_ADDR  = 32'h8020_0040;  // led[31:0]
     localparam CNT_ADDR  = 32'h8020_0050;  // counter
+    localparam UART_DATA_ADDR   = 32'h8020_0070;  // write: TX byte
+    localparam UART_STATUS_ADDR = 32'h8020_0074;  // read bit 0: TX ready
     localparam CNT_START_CMD = 32'h8000_0000;
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
+    localparam integer UART_BAUD_DIV_CALC = P_CPU_CLK_HZ / P_UART_BAUD_RATE;
+    localparam integer UART_BAUD_DIV =
+        (UART_BAUD_DIV_CALC < 2) ? 2 : UART_BAUD_DIV_CALC;
     logic [31:0] LED;
 
     // input synchronizers
@@ -100,6 +109,7 @@ module perip_bridge(
     logic rd_is_sw1_r,   rd_is_sw1_rr;
     logic rd_is_key_r,   rd_is_key_rr;
     logic rd_is_seg_r,   rd_is_seg_rr;
+    logic rd_is_uart_status_r, rd_is_uart_status_rr;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -109,6 +119,8 @@ module perip_bridge(
             rd_is_sw1_r   <= 1'b0;  rd_is_sw1_rr  <= 1'b0;
             rd_is_key_r   <= 1'b0;  rd_is_key_rr  <= 1'b0;
             rd_is_seg_r   <= 1'b0;  rd_is_seg_rr  <= 1'b0;
+            rd_is_uart_status_r  <= 1'b0;
+            rd_is_uart_status_rr <= 1'b0;
         end else begin
             // Cycle 0: decode address at request time
             rd_is_dram_r <= perip_rd_en &&
@@ -119,6 +131,8 @@ module perip_bridge(
             rd_is_sw1_r  <= perip_rd_en && perip_rd_addr == SW1_ADDR;
             rd_is_key_r  <= perip_rd_en && perip_rd_addr == KEY_ADDR;
             rd_is_seg_r  <= perip_rd_en && perip_rd_addr == SEG_ADDR;
+            rd_is_uart_status_r <= perip_rd_en &&
+                                   perip_rd_addr == UART_STATUS_ADDR;
 
             // Cycle 1: first pipeline stage
             rd_is_dram_rr <= rd_is_dram_r;
@@ -127,6 +141,7 @@ module perip_bridge(
             rd_is_sw1_rr  <= rd_is_sw1_r;
             rd_is_key_rr  <= rd_is_key_r;
             rd_is_seg_rr  <= rd_is_seg_r;
+            rd_is_uart_status_rr <= rd_is_uart_status_r;
         end
     end
 
@@ -159,8 +174,49 @@ module perip_bridge(
             rd_is_sw1_rr:  mmio_rdata_next = sw_sync_d2[63:32];
             rd_is_key_rr:  mmio_rdata_next = {24'd0, key_sync_d2};
             rd_is_seg_rr:  mmio_rdata_next = seg_wdata;
+            rd_is_uart_status_rr:
+                mmio_rdata_next = {31'd0, ~uart_tx_busy};
             default:       mmio_rdata_next = 32'h0;
         endcase
+    end
+
+    // Minimal polling UART transmitter for the CPU console.  The existing
+    // top-level UART remains dedicated to the digital-twin protocol.
+    logic        uart_tx_busy;
+    logic [31:0] uart_baud_count;
+    logic [3:0]  uart_bit_index;
+    logic [9:0]  uart_shift;
+    wire uart_data_write = perip_write_req &&
+                           (perip_addr == UART_DATA_ADDR);
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            uart_tx_output  <= 1'b1;
+            uart_tx_busy    <= 1'b0;
+            uart_baud_count <= 32'd0;
+            uart_bit_index  <= 4'd0;
+            uart_shift      <= 10'h3ff;
+        end else if (!uart_tx_busy) begin
+            uart_tx_output  <= 1'b1;
+            uart_baud_count <= 32'd0;
+            uart_bit_index  <= 4'd0;
+            if (uart_data_write) begin
+                uart_shift     <= {1'b1, perip_wdata[7:0], 1'b0};
+                uart_tx_output <= 1'b0;
+                uart_tx_busy   <= 1'b1;
+            end
+        end else if (uart_baud_count >= (UART_BAUD_DIV - 1)) begin
+            uart_baud_count <= 32'd0;
+            if (uart_bit_index == 4'd9) begin
+                uart_tx_output <= 1'b1;
+                uart_tx_busy   <= 1'b0;
+            end else begin
+                uart_bit_index <= uart_bit_index + 4'd1;
+                uart_tx_output <= uart_shift[uart_bit_index + 4'd1];
+            end
+        end else begin
+            uart_baud_count <= uart_baud_count + 32'd1;
+        end
     end
 
 

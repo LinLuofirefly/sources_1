@@ -24,7 +24,9 @@ module student_top#(
     parameter                           P_SW_CNT            = 64,
     parameter                           P_LED_CNT           = 32,
     parameter                           P_SEG_CNT           = 40,
-    parameter                           P_KEY_CNT           = 8
+    parameter                           P_KEY_CNT           = 8,
+    parameter integer                   P_CPU_CLK_HZ        = 190000000,
+    parameter integer                   P_UART_BAUD_RATE    = 115200
 ) (
     input                                       w_cpu_clk     ,
     input                                       w_clk_50Mhz   ,
@@ -33,7 +35,8 @@ module student_top#(
     input  [P_SW_CNT  - 1:0]                    virtual_sw    ,
 
     output [P_LED_CNT - 1:0]                    virtual_led   ,
-    output [P_SEG_CNT - 1:0]                    virtual_seg   
+    output [P_SEG_CNT - 1:0]                    virtual_seg   ,
+    output                                      cpu_uart_tx
 );
 
     // IROM
@@ -70,13 +73,17 @@ module student_top#(
     );
 
     Mem_IROM Mem_IROM (
+        .wea          (1'b0),
         .addra        (inst_addr),
         .douta        (instruction),
         .clka        (w_cpu_clk),
         .dina        (32'b0)
     );
     
-    perip_bridge bridge_inst (
+    perip_bridge #(
+        .P_CPU_CLK_HZ       (P_CPU_CLK_HZ),
+        .P_UART_BAUD_RATE   (P_UART_BAUD_RATE)
+    ) bridge_inst (
         .clk				(w_cpu_clk),
         .cnt_clk            (w_clk_50Mhz),
         .rst                (w_clk_rst),
@@ -91,7 +98,8 @@ module student_top#(
         .virtual_sw_input	(virtual_sw),
         .virtual_key_input	(virtual_key),	
         .virtual_seg_output	(virtual_seg),
-        .virtual_led_output (virtual_led)
+        .virtual_led_output (virtual_led),
+        .uart_tx_output     (cpu_uart_tx)
     );
 
 endmodule

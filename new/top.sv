@@ -20,7 +20,11 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module top(
+module top #(
+    parameter         P_CPU_CONSOLE_ON_UART = 1'b1,
+    parameter integer P_CPU_CLK_HZ          = 190000000,
+    parameter integer P_CPU_UART_BAUD_RATE  = 115200
+)(
     input  wire i_sys_clk_p         ,
     input  wire i_sys_clk_n         ,
     input  wire i_uart_rx           ,
@@ -41,6 +45,13 @@ module top(
     wire tx_start;
     wire [7:0] tx_data;
     wire tx_busy;
+    wire twin_uart_tx;
+    wire cpu_uart_tx;
+
+    // D17 is the only constrained TX pin.  The CPU console routes the RT-Thread
+    // console to it by default; set the parameter to zero for twin protocol
+    // responses instead.
+    assign o_uart_tx = P_CPU_CONSOLE_ON_UART ? cpu_uart_tx : twin_uart_tx;
 
     pll pll_inst(
         .clk_in1_p(i_sys_clk_p),
@@ -59,7 +70,7 @@ module top(
         .rx(i_uart_rx),
         .rx_data(rx_data),
         .rx_ready(rx_ready),
-        .tx(o_uart_tx),
+        .tx(twin_uart_tx),
         .tx_data(tx_data),
         .tx_start(tx_start),
         .tx_busy(tx_busy)
@@ -79,15 +90,18 @@ module top(
         .led(virtual_led)
     );
 
-    student_top student_top_inst(
+    student_top #(
+        .P_CPU_CLK_HZ       (P_CPU_CLK_HZ),
+        .P_UART_BAUD_RATE   (P_CPU_UART_BAUD_RATE)
+    ) student_top_inst(
         .w_cpu_clk(cpu_clk),
         .w_clk_50Mhz(w_clk_50Mhz),
         .w_clk_rst(~w_clk_rst),
         .virtual_key(virtual_key),
         .virtual_sw(virtual_sw),
         .virtual_led(virtual_led),
-        .virtual_seg(virtual_seg)
+        .virtual_seg(virtual_seg),
+        .cpu_uart_tx(cpu_uart_tx)
     );
 
 endmodule
-

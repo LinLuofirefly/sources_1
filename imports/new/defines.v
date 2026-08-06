@@ -9,10 +9,6 @@
 `define INST_SLLI   3'b001
 `define INST_SRI    3'b101
 
-// Zbb unary bit-count instruction encoded in the OP-IMM space.
-// ctz rd, rs1: imm[11:0] = 0110000_00001, funct3 = 001.
-`define INST_CTZ_IMM 12'b0110000_00001
-
 // L type inst
 `define INST_TYPE_L 7'b0000011
 `define INST_LB     3'b000
@@ -73,10 +69,12 @@
 `define INST_CSRRCI 3'b111
 
 `define CSR_MSTATUS 12'h300
+`define CSR_MIE     12'h304
 `define CSR_MTVEC   12'h305
 `define CSR_MSCRATCH 12'h340
 `define CSR_MEPC    12'h341
 `define CSR_MCAUSE  12'h342
+`define CSR_MIP     12'h344
 
 `define DRAM_ADDR_START 32'h8010_0000
 `define DRAM_ADDR_END   32'h8013_FFFF

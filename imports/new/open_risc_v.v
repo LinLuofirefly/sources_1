@@ -8,6 +8,7 @@ module open_risc_v (
     input  wire [31:0] inst_i,
     input  wire [31:0] ram_data_i,
     input  wire [31:0] mmio_data_i,
+    input  wire        timer_irq_i,
     output wire [31:0] pc_reg_pc_o,
     output wire        mem_rd_reg_o,
     output wire [31:0] mem_rd_addr_o,
@@ -107,7 +108,6 @@ module open_risc_v (
     wire        id_dec_func7_bit5_o;
     wire        id_dec_func7_is_r_o;
     wire        id_dec_func7_is_sub_o;
-    wire        id_dec_is_ctz_o;
     wire        id_dec_is_op_imm_o;
     wire        id_dec_is_op_reg_o;
     wire        id_dec_is_branch_o;
@@ -165,7 +165,6 @@ module open_risc_v (
     wire        id_ex_func7_bit5_o;
     wire        id_ex_func7_is_r_o;
     wire        id_ex_func7_is_sub_o;
-    wire        id_ex_is_ctz_o;
     wire        id_ex_is_op_imm_o;
     wire        id_ex_is_op_reg_o;
     wire        id_ex_is_branch_o;
@@ -323,8 +322,7 @@ module open_risc_v (
          ((id_dec_func3_o == `INST_SR) &&
           (id_dec_func7_is_r_o || id_dec_func7_is_sub_o)));
 
-    wire id_dec_has_deep_alu =
-        id_dec_is_shift_imm || id_dec_is_shift_reg || id_dec_is_ctz_o;
+    wire id_dec_has_deep_alu = id_dec_is_shift_imm || id_dec_is_shift_reg;
 
     // The EX load address is now physically driven by a non-late forwarding
     // mux.  Ordinary ALU/store consumers retain the hit bypass; a dependent
@@ -441,6 +439,10 @@ module open_risc_v (
     wire bp_replay_redirect =
         if_id_replaying_o &
         if_id_pred_taken_o &
+        // A replay redirect invalidates the packet currently waiting in the
+        // skid buffer.  Until the delayed replay flush removes that packet,
+        // it must not issue a second redirect from the wrong path.
+        ~bp_replay_flush_d1_r &
         ~hdu_hold_flag_o;
     assign bp_pc_redirect_valid =
         bp_fetch_redirect | bp_replay_redirect;
@@ -621,7 +623,6 @@ module open_risc_v (
         .ex_func7_bit5_o (id_dec_func7_bit5_o),
         .ex_func7_is_r_o (id_dec_func7_is_r_o),
         .ex_func7_is_sub_o(id_dec_func7_is_sub_o),
-        .ex_is_ctz_o     (id_dec_is_ctz_o),
         .ex_is_op_imm_o  (id_dec_is_op_imm_o),
         .ex_is_op_reg_o  (id_dec_is_op_reg_o),
         .ex_is_branch_o  (id_dec_is_branch_o),
@@ -699,7 +700,6 @@ module open_risc_v (
         .ex_func7_bit5_i (id_dec_func7_bit5_o),
         .ex_func7_is_r_i (id_dec_func7_is_r_o),
         .ex_func7_is_sub_i(id_dec_func7_is_sub_o),
-        .ex_is_ctz_i     (id_dec_is_ctz_o),
         .ex_is_op_imm_i  (id_dec_is_op_imm_o),
         .ex_is_op_reg_i  (id_dec_is_op_reg_o),
         .ex_is_branch_i  (id_dec_is_branch_o),
@@ -743,7 +743,6 @@ module open_risc_v (
         .ex_func7_bit5_o (id_ex_func7_bit5_o),
         .ex_func7_is_r_o (id_ex_func7_is_r_o),
         .ex_func7_is_sub_o(id_ex_func7_is_sub_o),
-        .ex_is_ctz_o     (id_ex_is_ctz_o),
         .ex_is_op_imm_o  (id_ex_is_op_imm_o),
         .ex_is_op_reg_o  (id_ex_is_op_reg_o),
         .ex_is_branch_o  (id_ex_is_branch_o),
@@ -827,6 +826,7 @@ module open_risc_v (
     ex ex_inst (
         .clk                 (clk),
         .rst                 (rst),
+        .timer_irq_i         (timer_irq_i),
         .inst_i              (id_ex_inst_o),
         .inst_addr_i         (id_ex_inst_addr_o),
         .fwd_op1_i           (fwd_op1_o),
@@ -852,7 +852,6 @@ module open_risc_v (
         .dec_func7_bit5_i    (id_ex_func7_bit5_o),
         .dec_func7_is_r_i    (id_ex_func7_is_r_o),
         .dec_func7_is_sub_i  (id_ex_func7_is_sub_o),
-        .dec_is_ctz_i        (id_ex_is_ctz_o),
         .dec_is_op_imm_i     (id_ex_is_op_imm_o),
         .dec_is_op_reg_i     (id_ex_is_op_reg_o),
         .dec_is_branch_i     (id_ex_is_branch_o),

@@ -52,12 +52,16 @@ module forwarding (
     function [31:0] select_fwd_data;
         input [2:0]  sel_i;
         input [31:0] reg_data_i;
+        input [31:0] ex_mem_data_i;
+        input [31:0] mem1_mem2_data_i;
+        input [31:0] late_load_data_i;
+        input [31:0] mem_wb_data_i;
         begin
             case (sel_i)
-                FWD_EX_MEM:    select_fwd_data = ex_mem_rd_data_i;
-                FWD_MEM1_MEM2: select_fwd_data = mem1_mem2_rd_data_i;
-                FWD_LATE_LOAD: select_fwd_data = late_load_data;
-                FWD_MEM_WB:    select_fwd_data = mem_wb_rd_data_i;
+                FWD_EX_MEM:    select_fwd_data = ex_mem_data_i;
+                FWD_MEM1_MEM2: select_fwd_data = mem1_mem2_data_i;
+                FWD_LATE_LOAD: select_fwd_data = late_load_data_i;
+                FWD_MEM_WB:    select_fwd_data = mem_wb_data_i;
                 default:       select_fwd_data = reg_data_i;
             endcase
         end
@@ -69,11 +73,14 @@ module forwarding (
     function [31:0] select_nonlate_data;
         input [2:0]  sel_i;
         input [31:0] reg_data_i;
+        input [31:0] ex_mem_data_i;
+        input [31:0] mem1_mem2_data_i;
+        input [31:0] mem_wb_data_i;
         begin
             case (sel_i)
-                FWD_EX_MEM:    select_nonlate_data = ex_mem_rd_data_i;
-                FWD_MEM1_MEM2: select_nonlate_data = mem1_mem2_rd_data_i;
-                FWD_MEM_WB:    select_nonlate_data = mem_wb_rd_data_i;
+                FWD_EX_MEM:    select_nonlate_data = ex_mem_data_i;
+                FWD_MEM1_MEM2: select_nonlate_data = mem1_mem2_data_i;
+                FWD_MEM_WB:    select_nonlate_data = mem_wb_data_i;
                 default:       select_nonlate_data = reg_data_i;
             endcase
         end
@@ -100,10 +107,16 @@ module forwarding (
             late_load_replay_r <= late_load_miss_i;
             if (capture_rs1_for_replay)
                 replay_rs1_data_r <=
-                    select_nonlate_data(id_ex_rs1_fwd_sel_i, id_ex_op1_i);
+                    select_nonlate_data(
+                        id_ex_rs1_fwd_sel_i, id_ex_op1_i,
+                        ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                        mem_wb_rd_data_i);
             if (capture_rs2_for_replay)
                 replay_rs2_data_r <=
-                    select_nonlate_data(id_ex_rs2_fwd_sel_i, id_ex_op2_i);
+                    select_nonlate_data(
+                        id_ex_rs2_fwd_sel_i, id_ex_op2_i,
+                        ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                        mem_wb_rd_data_i);
         end
     end
 
@@ -118,34 +131,57 @@ module forwarding (
         (id_ex_rs2_fwd_sel_i != FWD_LATE_LOAD);
 
     assign fwd_op1_o            = replay_rs1_forward ? replay_rs1_data_r :
-                                  select_fwd_data(id_ex_rs1_fwd_sel_i, id_ex_op1_i);
+                                  select_fwd_data(
+                                      id_ex_rs1_fwd_sel_i, id_ex_op1_i,
+                                      ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                                      late_load_data, mem_wb_rd_data_i);
 
     // A dependent load waits until its source is in a registered non-late
     // stage.  Keep cache-hit data and miss-replay state physically outside
     // the load-address cone that drives the cache and external DRAM.
     assign fwd_load_base_addr_o =
-        select_nonlate_data(id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i);
+        select_nonlate_data(
+            id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i,
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
 
     // Stores retain the zero-bubble late-load path and therefore still need
     // the independently preserved operand on miss replay.
     assign fwd_store_base_addr_o = replay_rs1_forward ? replay_rs1_data_r :
-        select_fwd_data(id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i);
+        select_fwd_data(
+            id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i,
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+            late_load_data, mem_wb_rd_data_i);
 
     // Branch/JALR are excluded from FWD_LATE_LOAD before ID/EX, so they can
     // never be the held consumer of a late-load miss.  Do not leave the
     // impossible replay-data mux on either redirect path.
     assign fwd_jalr_base_addr_o =
-        select_nonlate_data(id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i);
+        select_nonlate_data(
+            id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i,
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
     assign fwd_br_op1_o =
-        select_nonlate_data(id_ex_rs1_fwd_sel_i, id_ex_op1_i);
+        select_nonlate_data(
+            id_ex_rs1_fwd_sel_i, id_ex_op1_i,
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
 
     assign fwd_op2_o            = replay_rs2_forward ? replay_rs2_data_r :
-                                  select_fwd_data(id_ex_rs2_fwd_sel_i, id_ex_op2_i);
+                                  select_fwd_data(
+                                      id_ex_rs2_fwd_sel_i, id_ex_op2_i,
+                                      ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                                      late_load_data, mem_wb_rd_data_i);
     assign fwd_cmp_op2_o        = replay_rs2_forward ? replay_rs2_data_r :
-                                  select_fwd_data(id_ex_rs2_fwd_sel_i, id_ex_cmp_op2_i);
+                                  select_fwd_data(
+                                      id_ex_rs2_fwd_sel_i, id_ex_cmp_op2_i,
+                                      ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                                      late_load_data, mem_wb_rd_data_i);
     assign fwd_store_data_o     = replay_rs2_forward ? replay_rs2_data_r :
-                                  select_fwd_data(id_ex_rs2_fwd_sel_i, id_ex_store_data_i);
+                                  select_fwd_data(
+                                      id_ex_rs2_fwd_sel_i, id_ex_store_data_i,
+                                      ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+                                      late_load_data, mem_wb_rd_data_i);
     assign fwd_br_op2_o =
-        select_nonlate_data(id_ex_rs2_fwd_sel_i, id_ex_cmp_op2_i);
+        select_nonlate_data(
+            id_ex_rs2_fwd_sel_i, id_ex_cmp_op2_i,
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
 
 endmodule
