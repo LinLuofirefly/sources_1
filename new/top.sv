@@ -47,11 +47,15 @@ module top #(
     wire tx_busy;
     wire twin_uart_tx;
     wire cpu_uart_tx;
+    wire twin_uart_rx_input;
+    wire cpu_uart_rx_input;
 
-    // D17 is the only constrained TX pin.  The CPU console routes the RT-Thread
-    // console to it by default; set the parameter to zero for twin protocol
-    // responses instead.
+    // D17 is the only constrained TX pin. The same parameter routes both
+    // directions to either the RT-Thread console or the twin protocol, so the
+    // inactive receiver cannot interpret traffic sent at the other baud rate.
     assign o_uart_tx = P_CPU_CONSOLE_ON_UART ? cpu_uart_tx : twin_uart_tx;
+    assign cpu_uart_rx_input = P_CPU_CONSOLE_ON_UART ? i_uart_rx : 1'b1;
+    assign twin_uart_rx_input = P_CPU_CONSOLE_ON_UART ? 1'b1 : i_uart_rx;
 
     pll pll_inst(
         .clk_in1_p(i_sys_clk_p),
@@ -67,7 +71,7 @@ module top #(
     ) uart_inst(
         .clk(w_clk_50Mhz),
         .rst_n(w_clk_rst),
-        .rx(i_uart_rx),
+        .rx(twin_uart_rx_input),
         .rx_data(rx_data),
         .rx_ready(rx_ready),
         .tx(twin_uart_tx),
@@ -99,6 +103,7 @@ module top #(
         .w_clk_rst(~w_clk_rst),
         .virtual_key(virtual_key),
         .virtual_sw(virtual_sw),
+        .cpu_uart_rx(cpu_uart_rx_input),
         .virtual_led(virtual_led),
         .virtual_seg(virtual_seg),
         .cpu_uart_tx(cpu_uart_tx)

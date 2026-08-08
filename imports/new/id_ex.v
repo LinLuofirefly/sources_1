@@ -16,6 +16,7 @@ module id_ex (
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
+    input  wire [1:0]  pred_type_i,
     input  wire [4:0]  rs1_addr_i,
     input  wire [4:0]  rs2_addr_i,
     input  wire [2:0]  rs1_fwd_sel_i,
@@ -62,6 +63,7 @@ module id_ex (
      output reg        pred_taken_o,
      output reg [31:0] pred_target_o,
      output reg [`BP_GHR_WIDTH-1:0] pred_ghr_o,
+     output reg [1:0]  pred_type_o,
      output reg [4:0]  rs1_addr_o,
      output reg [4:0]  rs2_addr_o,
      output reg [2:0]  rs1_fwd_sel_o,
@@ -142,6 +144,11 @@ module id_ex (
         flush_flag_i ? {`BP_GHR_WIDTH{1'b0}} :
         hold_flag_i  ? pred_ghr_o :
                        pred_ghr_i;
+
+    wire [1:0] pred_type_next =
+        flush_flag_i ? `BP_PRED_NONE :
+        hold_flag_i  ? pred_type_o :
+                       pred_type_i;
 
     wire [4:0] rs1_addr_next =
         flush_flag_i ? 5'b0       :
@@ -324,6 +331,7 @@ module id_ex (
             pred_taken_o    <= 1'b0;
             pred_target_o   <= 32'b0;
             pred_ghr_o      <= {`BP_GHR_WIDTH{1'b0}};
+            pred_type_o     <= `BP_PRED_NONE;
             rs1_addr_o      <= 5'b0;
             rs2_addr_o      <= 5'b0;
             rs1_fwd_sel_o   <= 3'b0;
@@ -368,6 +376,7 @@ module id_ex (
             pred_taken_o    <= pred_taken_next;
             pred_target_o   <= pred_target_next;
             pred_ghr_o      <= pred_ghr_next;
+            pred_type_o     <= pred_type_next;
             rs1_addr_o      <= rs1_addr_next;
             rs2_addr_o      <= rs2_addr_next;
             rs1_fwd_sel_o   <= rs1_fwd_sel_next;

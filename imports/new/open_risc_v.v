@@ -2,7 +2,12 @@
 `include "defines.v"
 `include "dram_cache.v"
 
-module open_risc_v (
+module open_risc_v #(
+    // The request and its prediction metadata are registered as one packet
+    // beside the synchronous IROM.  The default therefore keeps the fast
+    // request-stage redirect enabled; set this to zero for A/B diagnostics.
+    parameter ENABLE_REQUEST_STAGE_BP = 1'b1
+) (
     input  wire        clk,
     input  wire        rst_n,
     input  wire [31:0] inst_i,
@@ -37,14 +42,22 @@ module open_risc_v (
     wire        bp_pred_taken_o;
     wire [31:0] bp_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] bp_pred_ghr_o;
+    wire [1:0]  bp_pred_type_o;
 
     wire        bp_req_btb_hit_o;
+    wire        bp_req_pred_valid_o;
     wire        bp_req_pred_taken_o;
     wire [31:0] bp_req_pred_target_o;
-    reg         bp_early_hit_r;
+    wire [`BP_GHR_WIDTH-1:0] bp_req_pred_ghr_o;
+    wire [1:0]  bp_req_pred_type_o;
+    reg         bp_fetch_valid_r;
+    reg         bp_fetch_pred_valid_r;
     reg         bp_early_pred_taken_r;
     reg  [31:0] bp_early_pred_target_r;
     reg  [`BP_GHR_WIDTH-1:0] bp_early_pred_ghr_r;
+    reg  [1:0]  bp_early_pred_type_r;
+    reg         fetch_epoch_r;
+    reg         bp_fetch_epoch_r;
 
     reg         bp_pred_flush_d1_r;
     reg         bp_replay_flush_d1_r;
@@ -73,6 +86,7 @@ module open_risc_v (
     wire        if_id_pred_taken_o;
     wire [31:0] if_id_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] if_id_pred_ghr_o;
+    wire [1:0]  if_id_pred_type_o;
 
     wire        if_id_load_valid_o;
     wire        if_id_load_pred_taken_o;
@@ -147,6 +161,7 @@ module open_risc_v (
     wire        id_ex_pred_taken_o;
     wire [31:0] id_ex_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] id_ex_pred_ghr_o;
+    wire [1:0]  id_ex_pred_type_o;
     wire [4:0]  id_ex_rs1_addr_o;
     wire [4:0]  id_ex_rs2_addr_o;
     wire [2:0]  id_ex_rs1_fwd_sel_o;
@@ -195,6 +210,7 @@ module open_risc_v (
     wire [31:0] ex_inst_o;
     wire [31:0] ex_jump_addr_o;
     wire        ex_jump_en_o;
+    wire        ex_timer_irq_trap_o;
     wire [31:0] ex_rd_mem_addr_o;
     wire        ex_load_hits_dram_o;
 
@@ -205,6 +221,11 @@ module open_risc_v (
     wire        bp_ras_push_en_o;
     wire        bp_ras_pop_en_o;
     wire [31:0] bp_ras_push_addr_o;
+    wire        bp_jalr_update_en_o;
+    wire [31:0] bp_jalr_update_pc_o;
+    wire [31:0] bp_jalr_update_target_o;
+    wire [`BP_GHR_WIDTH-1:0] bp_jalr_update_ghr_o;
+    wire        bp_jalr_update_is_call_o;
     wire        bp_actual_taken_o;
 
     wire        ex_rv32m_busy_o;
@@ -394,15 +415,26 @@ module open_risc_v (
     // Fetch / IF-ID / branch predictor accept control
     // ==================================================================
 
+    // bp_fetch_* and bp_early_* are one indivisible synchronous-IROM packet:
+    // PC, prediction validity, taken, target, type, GHR and epoch are captured
+    // on the request edge and consumed only by the matching response.
+    wire bp_fetch_epoch_match = (bp_fetch_epoch_r == fetch_epoch_r);
+    wire use_held_prediction =
+        ENABLE_REQUEST_STAGE_BP &&
+        bp_fetch_valid_r &&
+        bp_fetch_epoch_match &&
+        bp_fetch_pred_valid_r;
+
     wire bp_if_valid =
+        bp_fetch_valid_r &
+        bp_fetch_epoch_match &
         ~bp_pred_flush_d1_r &
-        ~bp_early_hit_r;
+        ~use_held_prediction;
 
     // Select the live or held prediction as one complete packet.
     // Taken, target and prediction metadata must stay cycle-aligned.
-    wire use_held_prediction = bp_early_hit_r;
     wire live_pred_valid     = bp_if_valid;
-    wire held_pred_valid     = bp_early_hit_r;
+    wire held_pred_valid     = bp_fetch_valid_r & bp_fetch_epoch_match;
 
     wire effective_pred_valid =
         use_held_prediction ? held_pred_valid : live_pred_valid;
@@ -412,18 +444,28 @@ module open_risc_v (
         use_held_prediction ? bp_early_pred_target_r : bp_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] effective_pred_ghr =
         use_held_prediction ? bp_early_pred_ghr_r : bp_pred_ghr_o;
+    wire [1:0] effective_pred_type =
+        use_held_prediction ? bp_early_pred_type_r : bp_pred_type_o;
 
-    // A synchronous fetch package can coincide with the package already held
-    // by IF/ID, especially after a predicted redirect. Suppress only exact
-    // same-PC duplicates; unrelated sequential fetches must still pass.
-    wire ifid_duplicate =
-        if_id_load_valid_o && (bp_fetch_pc_r == if_id_inst_addr_o);
+    wire bp_replay_redirect =
+        if_id_replaying_o &
+        if_id_pred_taken_o &
+        // A replay redirect invalidates the response currently returning from
+        // the sequential path.  The delayed pulse still clears the following
+        // pipeline slot after the replayed branch advances to ID/EX.
+        ~bp_replay_flush_d1_r &
+        ~hdu_hold_flag_o;
+
+    wire irom_rsp_kill =
+        ctrl_jump_en_o |
+        ex_timer_irq_trap_o |
+        bp_replay_redirect;
 
     wire ifid_fetch_valid =
         effective_pred_valid &
         ~ctrl_flush_ifid_o &
         ~bp_pred_flush_d1_r &
-        ~ifid_duplicate;
+        ~irom_rsp_kill;
 
     wire ifid_direct_fire =
         ifid_fetch_valid &
@@ -436,26 +478,35 @@ module open_risc_v (
         ifid_direct_fire &
         ~use_held_prediction &
         bp_pred_taken_o;
-    wire bp_replay_redirect =
-        if_id_replaying_o &
-        if_id_pred_taken_o &
-        // A replay redirect invalidates the packet currently waiting in the
-        // skid buffer.  Until the delayed replay flush removes that packet,
-        // it must not issue a second redirect from the wrong path.
-        ~bp_replay_flush_d1_r &
-        ~hdu_hold_flag_o;
     assign bp_pc_redirect_valid =
         bp_fetch_redirect | bp_replay_redirect;
     assign bp_pc_redirect_target =
         bp_replay_redirect ? if_id_pred_target_o : bp_pred_target_o;
 
-    // Request-stage redirect: the target request enters IROM immediately, so
-    // unlike the late fallback it must not create bp_pred_flush_d1_r.
-    wire bp_early_redirect =
+    // Recovery redirects start a new fetch epoch.  Correct request-stage
+    // predictions do not advance it: their originating request remains valid
+    // while only the following PC changes to the predicted target.
+    wire fetch_epoch_advance =
+        ctrl_jump_en_o |
+        ex_timer_irq_trap_o |
+        bp_pc_redirect_valid;
+
+    // A request is accepted exactly once.  During a hold, BRAM may still see
+    // the held address electrically, but the corresponding response packet is
+    // invalid.  Late/replay/EX redirects likewise invalidate the sequential
+    // request captured on that edge.
+    wire irom_req_fire =
         rst &
         ~hdu_hold_flag_o &
         ~ctrl_jump_en_o &
-        ~bp_pc_redirect_valid &
+        ~ex_timer_irq_trap_o &
+        ~bp_pc_redirect_valid;
+
+    // Request-stage redirect: the branch request itself remains valid and its
+    // metadata is carried in the response packet; only the next PC changes.
+    wire bp_early_redirect =
+        ENABLE_REQUEST_STAGE_BP &
+        irom_req_fire &
         bp_req_pred_taken_o;
 
     // Select the final PC redirect valid and target in one priority block.
@@ -482,35 +533,75 @@ module open_risc_v (
 
     always @(posedge clk) begin
         if (rst == 1'b0) begin
+            bp_fetch_valid_r         <= 1'b0;
             bp_fetch_pc_r            <= 32'h8000_0000;
             bp_pred_flush_d1_r       <= 1'b0;
             bp_replay_flush_d1_r     <= 1'b0;
-            bp_early_hit_r           <= 1'b0;
+            bp_fetch_pred_valid_r    <= 1'b0;
             bp_early_pred_taken_r    <= 1'b0;
             bp_early_pred_target_r   <= 32'b0;
             bp_early_pred_ghr_r      <= {`BP_GHR_WIDTH{1'b0}};
+            bp_early_pred_type_r     <= `BP_PRED_NONE;
+            fetch_epoch_r            <= 1'b0;
+            bp_fetch_epoch_r         <= 1'b0;
         end else begin
+            // This register bank is the one-cycle IROM request/response tag.
+            // inst_i observed after this edge belongs to this exact packet.
+            bp_fetch_valid_r         <= irom_req_fire;
             bp_fetch_pc_r            <= pc_reg_pc_o;
-            bp_early_hit_r           <= bp_req_btb_hit_o;
+            bp_fetch_pred_valid_r    <= bp_req_pred_valid_o;
             bp_early_pred_taken_r    <= bp_req_pred_taken_o;
             bp_early_pred_target_r   <= bp_req_pred_target_o;
-            bp_early_pred_ghr_r      <= bp_pred_ghr_o;
+            bp_early_pred_ghr_r      <= bp_req_pred_ghr_o;
+            bp_early_pred_type_r     <= bp_req_pred_type_o;
+            bp_fetch_epoch_r         <= fetch_epoch_r;
 
-            // ?????redirect ??????IROM ??????ghost fetch??
+            if (fetch_epoch_advance) begin
+                fetch_epoch_r <= ~fetch_epoch_r;
+            end
+
+            // The late predictor redirects after the sequential request has
+            // reached IROM.  Suppress that one-cycle ghost response.
             bp_pred_flush_d1_r       <= bp_pc_redirect_valid;
 
-            // replay redirect ??????
+            // Keep the existing one-cycle replay pipeline clear pulse.
             bp_replay_flush_d1_r     <= bp_replay_redirect;
         end
     end
 
     wire frontend_flush_ifid =
+        ex_timer_irq_trap_o |
         ctrl_flush_ifid_o |
         bp_replay_flush_d1_r;
 
     wire frontend_flush_idex =
+        ex_timer_irq_trap_o |
         ctrl_flush_idex_o |
         bp_replay_flush_d1_r;
+
+`ifndef SYNTHESIS
+    // A request-stage prediction is safe only if its metadata returns beside
+    // the instruction for the same PC and epoch.  These checks catch future
+    // edits that accidentally delay one packet field independently.
+    always @(negedge clk) begin
+        if (rst && use_held_prediction) begin
+            if ((bp_early_pred_type_r == `BP_PRED_BRANCH) &&
+                (inst_i[6:0] != `INST_TYPE_B)) begin
+                $fatal(1, "request BP packet mismatch: branch type pc=%08x inst=%08x",
+                       bp_fetch_pc_r, inst_i);
+            end
+            if ((bp_early_pred_type_r == `BP_PRED_JALR) &&
+                (inst_i[6:0] != `INST_JALR)) begin
+                $fatal(1, "request BP packet mismatch: JALR type pc=%08x inst=%08x",
+                       bp_fetch_pc_r, inst_i);
+            end
+        end
+        if (rst && bp_fetch_valid_r && !bp_fetch_epoch_match &&
+            ifid_fetch_valid) begin
+            $fatal(1, "stale IROM response accepted across fetch epoch");
+        end
+    end
+`endif
 
     // ==================================================================
     // Branch predictor
@@ -521,13 +612,18 @@ module open_risc_v (
         .if_valid_i      (bp_if_valid),
         .if_inst_i       (inst_i),
         .if_pc_i         (bp_fetch_pc_r),
+        .if_ghr_i        (bp_early_pred_ghr_r),
         .req_pc_i        (pc_reg_pc_o),
         .req_btb_hit_o   (bp_req_btb_hit_o),
+        .req_pred_valid_o(bp_req_pred_valid_o),
         .req_pred_taken_o(bp_req_pred_taken_o),
         .req_pred_target_o(bp_req_pred_target_o),
+        .req_pred_ghr_o  (bp_req_pred_ghr_o),
+        .req_pred_type_o (bp_req_pred_type_o),
         .pred_taken_o    (bp_pred_taken_o),
         .pred_target_o   (bp_pred_target_o),
         .pred_ghr_o      (bp_pred_ghr_o),
+        .pred_type_o     (bp_pred_type_o),
         .update_en_i     (mem_wb_bp_update_en_o),
         .update_pc_word_i(mem_wb_bp_update_pc_o[31:2]),
         .update_target_i (mem_wb_bp_update_target_o),
@@ -535,6 +631,11 @@ module open_risc_v (
         .ras_push_en_i   (bp_ras_push_en_o),
         .ras_pop_en_i    (bp_ras_pop_en_o),
         .ras_push_addr_i (bp_ras_push_addr_o),
+        .jalr_update_en_i(bp_jalr_update_en_o),
+        .jalr_update_pc_i(bp_jalr_update_pc_o),
+        .jalr_update_target_i(bp_jalr_update_target_o),
+        .jalr_update_ghr_i(bp_jalr_update_ghr_o),
+        .jalr_update_is_call_i(bp_jalr_update_is_call_o),
         .actual_taken_i  (mem_wb_bp_actual_taken_o)
     );
 
@@ -563,12 +664,14 @@ module open_risc_v (
         .pred_taken_i       (effective_pred_taken),
         .pred_target_i      (effective_pred_target),
         .pred_ghr_i         (effective_pred_ghr),
+        .pred_type_i        (effective_pred_type),
         .hold_flag_i        (hdu_hold_flag_o),
         .flush_flag_i       (frontend_flush_ifid),
         .inst_addr_o        (if_id_inst_addr_o),
         .pred_taken_o       (if_id_pred_taken_o),
         .pred_target_o      (if_id_pred_target_o),
         .pred_ghr_o         (if_id_pred_ghr_o),
+        .pred_type_o        (if_id_pred_type_o),
         .inst_o             (if_id_inst_o),
         .load_valid_o       (if_id_load_valid_o),
         .load_pred_taken_o  (if_id_load_pred_taken_o),
@@ -682,6 +785,7 @@ module open_risc_v (
         .pred_taken_i    (if_id_pred_taken_o),
         .pred_target_i   (if_id_pred_target_o),
         .pred_ghr_i      (if_id_pred_ghr_o),
+        .pred_type_i     (if_id_pred_type_o),
         .rs1_addr_i      (id_rs1_addr_o),
         .rs2_addr_i      (id_rs2_addr_o),
         .rs1_fwd_sel_i   (id_rs1_fwd_sel_o),
@@ -725,6 +829,7 @@ module open_risc_v (
         .pred_taken_o    (id_ex_pred_taken_o),
         .pred_target_o   (id_ex_pred_target_o),
         .pred_ghr_o      (id_ex_pred_ghr_o),
+        .pred_type_o     (id_ex_pred_type_o),
         .rs1_addr_o      (id_ex_rs1_addr_o),
         .rs2_addr_o      (id_ex_rs2_addr_o),
         .rs1_fwd_sel_o   (id_ex_rs1_fwd_sel_o),
@@ -838,6 +943,7 @@ module open_risc_v (
         .pred_taken_i        (id_ex_pred_taken_o),
         .pred_target_i       (id_ex_pred_target_o),
         .pred_ghr_i          (id_ex_pred_ghr_o),
+        .pred_type_i         (id_ex_pred_type_o),
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
         .kill_i              (ctrl_kill_ex_o | late_load_miss_o),
@@ -887,9 +993,15 @@ module open_risc_v (
         .bp_ras_push_en_o    (bp_ras_push_en_o),
         .bp_ras_pop_en_o     (bp_ras_pop_en_o),
         .bp_ras_push_addr_o  (bp_ras_push_addr_o),
+        .bp_jalr_update_en_o (bp_jalr_update_en_o),
+        .bp_jalr_update_pc_o (bp_jalr_update_pc_o),
+        .bp_jalr_update_target_o(bp_jalr_update_target_o),
+        .bp_jalr_update_ghr_o(bp_jalr_update_ghr_o),
+        .bp_jalr_update_is_call_o(bp_jalr_update_is_call_o),
         .bp_actual_taken_o   (bp_actual_taken_o),
         .rv32m_busy_o        (ex_rv32m_busy_o),
-        .rv32m_done_o        (ex_rv32m_done_o)
+        .rv32m_done_o        (ex_rv32m_done_o),
+        .timer_irq_trap_o    (ex_timer_irq_trap_o)
     );
 
     // ==================================================================

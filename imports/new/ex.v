@@ -16,6 +16,7 @@ module ex (
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
+    input  wire [1:0]  pred_type_i,
     input  wire [4:0]  rd_addr_i,
     input  wire        rd_wen_i,
     input  wire        kill_i,
@@ -71,10 +72,16 @@ module ex (
      output reg  [`BP_GHR_WIDTH-1:0] bp_update_ghr_o,
      output reg         bp_ras_push_en_o,
      output reg         bp_ras_pop_en_o,
-    output reg  [31:0] bp_ras_push_addr_o,
-    output reg         bp_actual_taken_o,
+     output reg  [31:0] bp_ras_push_addr_o,
+     output reg         bp_jalr_update_en_o,
+     output reg  [31:0] bp_jalr_update_pc_o,
+     output reg  [31:0] bp_jalr_update_target_o,
+     output reg  [`BP_GHR_WIDTH-1:0] bp_jalr_update_ghr_o,
+     output reg         bp_jalr_update_is_call_o,
+     output reg         bp_actual_taken_o,
      output wire        rv32m_busy_o,
-     output wire        rv32m_done_o
+     output wire        rv32m_done_o,
+     output wire        timer_irq_trap_o
 );
 
      wire [2:0] func3  = dec_func3_i;
@@ -126,7 +133,14 @@ module ex (
     end
 
     wire branch_taken_w = branch_condition_met;
-    wire branch_direction_mismatch_w = (branch_taken_w != pred_taken_i);
+    wire branch_pred_taken_w =
+        (pred_type_i == `BP_PRED_BRANCH) && pred_taken_i;
+    wire jal_pred_taken_w =
+        (pred_type_i == `BP_PRED_JAL) && pred_taken_i;
+    wire jalr_pred_taken_w =
+        (pred_type_i == `BP_PRED_JALR) && pred_taken_i;
+    wire branch_direction_mismatch_w =
+        (branch_taken_w != branch_pred_taken_w);
     // Conditional-branch targets are static for this IROM and BTB entries are
     // tag-checked.  On a direction miss, the registered prediction already
     // identifies the correction target, so the late comparison result need
@@ -134,17 +148,16 @@ module ex (
     wire branch_redirect_w =
         dec_is_branch_i && branch_direction_mismatch_w;
     wire [31:0] branch_redirect_addr_w =
-        pred_taken_i ? fallthrough_addr : branch_target_addr;
+        branch_pred_taken_w ? fallthrough_addr : branch_target_addr;
     wire ex_branch_redirect_valid = branch_redirect_w;
     wire [31:0] ex_branch_redirect_target = branch_redirect_addr_w;
     wire jal_redirect_w =
         dec_is_jal_i &&
-        (pred_taken_i == 1'b0);
+        !jal_pred_taken_w;
     wire jalr_redirect_w =
         dec_is_jalr_i &&
         (
-            !dec_ras_predicted_jalr_i ||
-            !pred_taken_i ||
+            !jalr_pred_taken_w ||
             (pred_target_i != jalr_target_addr)
         );
     localparam [13:0] DRAM_REGION_TAG = 14'h2004;
@@ -162,6 +175,7 @@ module ex (
         (rv32m_iter_busy_w == 1'b0) &&
         (rv32m_iter_done_w == 1'b0);
     wire csr_timer_irq_trap_w;
+    assign timer_irq_trap_o = csr_timer_irq_trap_w;
     wire rv32m_start = (kill_i == 1'b0) &&
                        !csr_timer_irq_trap_w && rv32m_start_slot;
     wire rv32m_hide_ex = rv32m_start_slot || rv32m_iter_busy_w;
@@ -236,6 +250,11 @@ module ex (
         bp_ras_push_en_o   = 1'b0;
         bp_ras_pop_en_o    = 1'b0;
         bp_ras_push_addr_o = 32'b0;
+        bp_jalr_update_en_o = 1'b0;
+        bp_jalr_update_pc_o = 32'b0;
+        bp_jalr_update_target_o = 32'b0;
+        bp_jalr_update_ghr_o = {`BP_GHR_WIDTH{1'b0}};
+        bp_jalr_update_is_call_o = 1'b0;
         bp_actual_taken_o  = 1'b0;
         inst_o             = kill_i ? `INST_NOP : inst_i;
 
@@ -391,6 +410,17 @@ module ex (
                         bp_ras_pop_en_o = 1'b1;
                     end
 
+                    // Returns continue to use the RAS.  Train the separate
+                    // target cache only for indirect calls and jumps.
+                    if (dec_ras_predicted_jalr_i == 1'b0) begin
+                        bp_jalr_update_en_o = 1'b1;
+                        bp_jalr_update_pc_o = inst_addr_i;
+                        bp_jalr_update_target_o = jalr_target_addr;
+                        bp_jalr_update_ghr_o = pred_ghr_i;
+                        bp_jalr_update_is_call_o =
+                            dec_ras_should_push_jalr_i;
+                    end
+
                     if (jalr_redirect_w) begin
                         jump_en_o = 1'b1;
                     end
@@ -441,6 +471,7 @@ module ex (
             bp_update_en_o   = 1'b0;
             bp_ras_push_en_o = 1'b0;
             bp_ras_pop_en_o  = 1'b0;
+            bp_jalr_update_en_o = 1'b0;
             inst_o           = `INST_NOP;
         end
 
@@ -453,6 +484,7 @@ module ex (
             bp_update_en_o   = 1'b0;
             bp_ras_push_en_o = 1'b0;
             bp_ras_pop_en_o  = 1'b0;
+            bp_jalr_update_en_o = 1'b0;
             inst_o           = `INST_NOP;
         end
     end

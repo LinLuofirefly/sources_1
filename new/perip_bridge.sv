@@ -37,7 +37,8 @@ module perip_bridge #(
     output logic [31:0]  perip_mmio_rdata   ,
 
     input  logic [63:0]  virtual_sw_input	,
-    input  logic [7:0]   virtual_key_input	,	
+    input  logic [7:0]   virtual_key_input	,
+    input  logic         uart_rx_input      ,
 
 	output logic [39:0]  virtual_seg_output	,
     output logic [31:0]  virtual_led_output,
@@ -53,11 +54,17 @@ module perip_bridge #(
     localparam CNT_ADDR  = 32'h8020_0050;  // counter
     localparam UART_DATA_ADDR   = 32'h8020_0070;  // write: TX byte
     localparam UART_STATUS_ADDR = 32'h8020_0074;  // read bit 0: TX ready
+    localparam UART_RX_DATA_ADDR   = 32'h8020_0078;  // read: oldest RX byte
+    localparam UART_RX_STATUS_ADDR = 32'h8020_007C;  // read bit 0: RX valid
     localparam CNT_START_CMD = 32'h8000_0000;
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     localparam integer UART_BAUD_DIV_CALC = P_CPU_CLK_HZ / P_UART_BAUD_RATE;
     localparam integer UART_BAUD_DIV =
         (UART_BAUD_DIV_CALC < 2) ? 2 : UART_BAUD_DIV_CALC;
+    localparam integer UART_HALF_BAUD_DIV =
+        (UART_BAUD_DIV / 2 < 1) ? 1 : (UART_BAUD_DIV / 2);
+    localparam integer UART_RX_FIFO_DEPTH = 16;
+    localparam logic [4:0] UART_RX_FIFO_CAPACITY = 5'd16;
     logic [31:0] LED;
 
     // input synchronizers
@@ -110,6 +117,8 @@ module perip_bridge #(
     logic rd_is_key_r,   rd_is_key_rr;
     logic rd_is_seg_r,   rd_is_seg_rr;
     logic rd_is_uart_status_r, rd_is_uart_status_rr;
+    logic rd_is_uart_rx_data_r, rd_is_uart_rx_data_rr;
+    logic rd_is_uart_rx_status_r, rd_is_uart_rx_status_rr;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -121,6 +130,10 @@ module perip_bridge #(
             rd_is_seg_r   <= 1'b0;  rd_is_seg_rr  <= 1'b0;
             rd_is_uart_status_r  <= 1'b0;
             rd_is_uart_status_rr <= 1'b0;
+            rd_is_uart_rx_data_r   <= 1'b0;
+            rd_is_uart_rx_data_rr  <= 1'b0;
+            rd_is_uart_rx_status_r <= 1'b0;
+            rd_is_uart_rx_status_rr <= 1'b0;
         end else begin
             // Cycle 0: decode address at request time
             rd_is_dram_r <= perip_rd_en &&
@@ -133,6 +146,10 @@ module perip_bridge #(
             rd_is_seg_r  <= perip_rd_en && perip_rd_addr == SEG_ADDR;
             rd_is_uart_status_r <= perip_rd_en &&
                                    perip_rd_addr == UART_STATUS_ADDR;
+            rd_is_uart_rx_data_r <= perip_rd_en &&
+                                    perip_rd_addr == UART_RX_DATA_ADDR;
+            rd_is_uart_rx_status_r <= perip_rd_en &&
+                                      perip_rd_addr == UART_RX_STATUS_ADDR;
 
             // Cycle 1: first pipeline stage
             rd_is_dram_rr <= rd_is_dram_r;
@@ -142,6 +159,8 @@ module perip_bridge #(
             rd_is_key_rr  <= rd_is_key_r;
             rd_is_seg_rr  <= rd_is_seg_r;
             rd_is_uart_status_rr <= rd_is_uart_status_r;
+            rd_is_uart_rx_data_rr <= rd_is_uart_rx_data_r;
+            rd_is_uart_rx_status_rr <= rd_is_uart_rx_status_r;
         end
     end
 
@@ -176,6 +195,11 @@ module perip_bridge #(
             rd_is_seg_rr:  mmio_rdata_next = seg_wdata;
             rd_is_uart_status_rr:
                 mmio_rdata_next = {31'd0, ~uart_tx_busy};
+            rd_is_uart_rx_data_rr:
+                mmio_rdata_next = {24'd0, uart_rx_read_data};
+            rd_is_uart_rx_status_rr:
+                mmio_rdata_next = {22'd0, uart_rx_overrun, uart_rx_count,
+                                    3'd0, |uart_rx_count};
             default:       mmio_rdata_next = 32'h0;
         endcase
     end
@@ -216,6 +240,128 @@ module perip_bridge #(
             end
         end else begin
             uart_baud_count <= uart_baud_count + 32'd1;
+        end
+    end
+
+    // 8-N-1 UART receiver.  A small FIFO decouples the serial line from the
+    // polling console so complete command lines are not lost between MMIO
+    // reads.  Reading UART_RX_DATA_ADDR removes exactly one byte.
+    typedef enum logic [1:0] {
+        UART_RX_IDLE,
+        UART_RX_START,
+        UART_RX_DATA,
+        UART_RX_STOP
+    } uart_rx_state_t;
+
+    uart_rx_state_t uart_rx_state;
+    logic uart_rx_sync_d1, uart_rx_sync_d2;
+    logic [31:0] uart_rx_baud_count;
+    logic [2:0] uart_rx_bit_index;
+    logic [7:0] uart_rx_shift;
+    logic [7:0] uart_rx_byte;
+    logic uart_rx_byte_ready;
+
+    logic [7:0] uart_rx_fifo [0:UART_RX_FIFO_DEPTH-1];
+    logic [3:0] uart_rx_write_ptr;
+    logic [3:0] uart_rx_read_ptr;
+    logic [4:0] uart_rx_count;
+    logic [7:0] uart_rx_read_data;
+    logic uart_rx_overrun;
+
+    wire uart_rx_data_read = perip_rd_en &&
+                             (perip_rd_addr == UART_RX_DATA_ADDR);
+    wire uart_rx_pop = uart_rx_data_read && (uart_rx_count != 0);
+    wire uart_rx_push = uart_rx_byte_ready &&
+                        ((uart_rx_count < UART_RX_FIFO_CAPACITY) || uart_rx_pop);
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            uart_rx_sync_d1 <= 1'b1;
+            uart_rx_sync_d2 <= 1'b1;
+            uart_rx_state <= UART_RX_IDLE;
+            uart_rx_baud_count <= 32'd0;
+            uart_rx_bit_index <= 3'd0;
+            uart_rx_shift <= 8'd0;
+            uart_rx_byte <= 8'd0;
+            uart_rx_byte_ready <= 1'b0;
+        end else begin
+            uart_rx_sync_d1 <= uart_rx_input;
+            uart_rx_sync_d2 <= uart_rx_sync_d1;
+            uart_rx_byte_ready <= 1'b0;
+
+            case (uart_rx_state)
+                UART_RX_IDLE: begin
+                    uart_rx_baud_count <= 32'd0;
+                    uart_rx_bit_index <= 3'd0;
+                    if (!uart_rx_sync_d2) begin
+                        uart_rx_state <= UART_RX_START;
+                        uart_rx_baud_count <= UART_HALF_BAUD_DIV - 1;
+                    end
+                end
+                UART_RX_START: begin
+                    if (uart_rx_baud_count == 0) begin
+                        if (!uart_rx_sync_d2) begin
+                            uart_rx_state <= UART_RX_DATA;
+                            uart_rx_baud_count <= UART_BAUD_DIV - 1;
+                        end else begin
+                            uart_rx_state <= UART_RX_IDLE;
+                        end
+                    end else begin
+                        uart_rx_baud_count <= uart_rx_baud_count - 1;
+                    end
+                end
+                UART_RX_DATA: begin
+                    if (uart_rx_baud_count == 0) begin
+                        uart_rx_shift[uart_rx_bit_index] <= uart_rx_sync_d2;
+                        uart_rx_baud_count <= UART_BAUD_DIV - 1;
+                        if (uart_rx_bit_index == 3'd7) begin
+                            uart_rx_state <= UART_RX_STOP;
+                        end else begin
+                            uart_rx_bit_index <= uart_rx_bit_index + 1'b1;
+                        end
+                    end else begin
+                        uart_rx_baud_count <= uart_rx_baud_count - 1;
+                    end
+                end
+                default: begin
+                    if (uart_rx_baud_count == 0) begin
+                        if (uart_rx_sync_d2) begin
+                            uart_rx_byte <= uart_rx_shift;
+                            uart_rx_byte_ready <= 1'b1;
+                        end
+                        uart_rx_state <= UART_RX_IDLE;
+                    end else begin
+                        uart_rx_baud_count <= uart_rx_baud_count - 1;
+                    end
+                end
+            endcase
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            uart_rx_write_ptr <= 4'd0;
+            uart_rx_read_ptr <= 4'd0;
+            uart_rx_count <= 5'd0;
+            uart_rx_read_data <= 8'd0;
+            uart_rx_overrun <= 1'b0;
+        end else begin
+            if (uart_rx_pop) begin
+                uart_rx_read_data <= uart_rx_fifo[uart_rx_read_ptr];
+                uart_rx_read_ptr <= uart_rx_read_ptr + 1'b1;
+            end
+            if (uart_rx_push) begin
+                uart_rx_fifo[uart_rx_write_ptr] <= uart_rx_byte;
+                uart_rx_write_ptr <= uart_rx_write_ptr + 1'b1;
+            end else if (uart_rx_byte_ready) begin
+                uart_rx_overrun <= 1'b1;
+            end
+
+            case ({uart_rx_push, uart_rx_pop})
+                2'b10: uart_rx_count <= uart_rx_count + 1'b1;
+                2'b01: uart_rx_count <= uart_rx_count - 1'b1;
+                default: uart_rx_count <= uart_rx_count;
+            endcase
         end
     end
 

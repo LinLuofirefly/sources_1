@@ -33,6 +33,7 @@ module student_top#(
     input                                       w_clk_rst     ,
     input  [P_KEY_CNT - 1:0]                    virtual_key   ,
     input  [P_SW_CNT  - 1:0]                    virtual_sw    ,
+    input                                       cpu_uart_rx   ,
 
     output [P_LED_CNT - 1:0]                    virtual_led   ,
     output [P_SEG_CNT - 1:0]                    virtual_seg   ,
@@ -41,7 +42,7 @@ module student_top#(
 
     // IROM
     logic [31:0] pc;
-    logic [11:0] inst_addr;
+    logic [12:0] inst_addr;
     logic [31:0] instruction;
 
     // perip
@@ -51,8 +52,8 @@ module student_top#(
     logic         perip_rd_en;
     logic [3:0] perip_wstrb;
 
-    // 16KB = 2^12 * 32bit
-    assign inst_addr = pc[13:2];
+    // 32KB = 2^13 * 32bit
+    assign inst_addr = pc[14:2];
 
     myCPU Core_cpu (
         .cpu_rst            (w_clk_rst),
@@ -97,6 +98,7 @@ module student_top#(
         .perip_rd_en		(perip_rd_en),
         .virtual_sw_input	(virtual_sw),
         .virtual_key_input	(virtual_key),	
+        .uart_rx_input      (cpu_uart_rx),
         .virtual_seg_output	(virtual_seg),
         .virtual_led_output (virtual_led),
         .uart_tx_output     (cpu_uart_tx)

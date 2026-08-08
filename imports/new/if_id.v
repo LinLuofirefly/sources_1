@@ -15,6 +15,7 @@ module if_id (
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
+    input  wire [1:0]  pred_type_i,
 
     input  wire        hold_flag_i,
     input  wire        flush_flag_i,
@@ -23,6 +24,7 @@ module if_id (
     output reg         pred_taken_o,
     output reg  [31:0] pred_target_o,
     output reg  [`BP_GHR_WIDTH-1:0] pred_ghr_o,
+    output reg  [1:0]  pred_type_o,
     output reg  [31:0] inst_o,
 
     // 本拍 IF/ID 是否真正装载/回放了一个包。
@@ -40,6 +42,7 @@ module if_id (
     reg        hold_pred_taken_reg;
     reg [31:0] hold_pred_target_reg;
     reg [`BP_GHR_WIDTH-1:0] hold_pred_ghr_reg;
+    reg [1:0]  hold_pred_type_reg;
 
     reg        is_holding_reg;
     reg        replaying_reg;
@@ -55,6 +58,7 @@ module if_id (
             pred_taken_o         <= 1'b0;
             pred_target_o        <= 32'b0;
             pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
+            pred_type_o          <= `BP_PRED_NONE;
 
             load_valid_o         <= 1'b0;
             load_pred_taken_o    <= 1'b0;
@@ -65,6 +69,7 @@ module if_id (
             hold_pred_taken_reg  <= 1'b0;
             hold_pred_target_reg <= 32'b0;
             hold_pred_ghr_reg    <= {`BP_GHR_WIDTH{1'b0}};
+            hold_pred_type_reg   <= `BP_PRED_NONE;
 
             is_holding_reg       <= 1'b0;
             replaying_reg        <= 1'b0;
@@ -85,6 +90,7 @@ module if_id (
                 hold_pred_taken_reg  <= pred_taken_i;
                 hold_pred_target_reg <= pred_target_i;
                 hold_pred_ghr_reg    <= pred_ghr_i;
+                hold_pred_type_reg   <= pred_type_i;
 
                 is_holding_reg       <= 1'b1;
                 replay_pending_reg   <= 1'b1;
@@ -98,6 +104,7 @@ module if_id (
                 pred_taken_o         <= hold_pred_taken_reg;
                 pred_target_o        <= hold_pred_target_reg;
                 pred_ghr_o           <= hold_pred_ghr_reg;
+                pred_type_o          <= hold_pred_type_reg;
 
                 load_valid_o         <= 1'b1;
                 load_pred_taken_o    <= hold_pred_taken_reg;
@@ -120,6 +127,7 @@ module if_id (
                 pred_taken_o         <= pred_taken_i;
                 pred_target_o        <= pred_target_i;
                 pred_ghr_o           <= pred_ghr_i;
+                pred_type_o          <= pred_type_i;
 
                 load_valid_o         <= 1'b1;
                 load_pred_taken_o    <= pred_taken_i;
@@ -131,6 +139,7 @@ module if_id (
                 pred_taken_o         <= 1'b0;
                 pred_target_o        <= 32'b0;
                 pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
+                pred_type_o          <= `BP_PRED_NONE;
 
                 load_valid_o         <= 1'b0;
                 load_pred_taken_o    <= 1'b0;
