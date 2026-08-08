@@ -5,7 +5,11 @@ module id_ex (
     input  wire        clk,
     input  wire        rst,
     input  wire        hold_flag_i,
+    // Kept for source compatibility; tie low when valid-based flushing is
+    // enabled so synthesis removes every bundle-clear/reset path.
     input  wire        flush_flag_i,
+    input  wire        valid_i,
+    input  wire        valid_flush_i,
 
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
@@ -55,6 +59,7 @@ module id_ex (
     // Do not force max_fanout on wide datapath buses.
     // Excessive register replication can worsen physical routing timing.
      output reg [31:0] inst_o,
+     output reg        valid_o,
      output reg [31:0] inst_addr_o,
      output reg [31:0] op1_o,
      output reg [31:0] op2_o,
@@ -322,6 +327,7 @@ module id_ex (
 
     always @(posedge clk) begin
         if (rst == 1'b0) begin
+            valid_o         <= 1'b0;
             inst_o          <= `INST_NOP;
             inst_addr_o     <= 32'b0;
             op1_o           <= 32'b0;
@@ -367,6 +373,12 @@ module id_ex (
             ex_ras_should_pop_jalr_o  <= 1'b0;
             ex_ras_predicted_jalr_o   <= 1'b0;
         end else begin
+            if (valid_flush_i) begin
+                valid_o <= 1'b0;
+            end else if (!hold_flag_i) begin
+                valid_o <= valid_i;
+            end
+
             inst_o          <= inst_next;
             inst_addr_o     <= inst_addr_next;
             op1_o           <= op1_next;

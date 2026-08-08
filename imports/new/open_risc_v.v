@@ -83,6 +83,7 @@ module open_risc_v #(
     // ------------------------------------------------------------------
     wire [31:0] if_id_inst_addr_o;
     wire [31:0] if_id_inst_o;
+    wire        if_id_valid_o;
     wire        if_id_pred_taken_o;
     wire [31:0] if_id_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] if_id_pred_ghr_o;
@@ -153,6 +154,7 @@ module open_risc_v #(
     // ID/EX
     // ------------------------------------------------------------------
     wire [31:0] id_ex_inst_o;
+    wire        id_ex_valid_o;
     wire [31:0] id_ex_inst_addr_o;
     wire [31:0] id_ex_op1_o;
     wire [31:0] id_ex_op2_o;
@@ -350,8 +352,11 @@ module open_risc_v #(
     // load waits for a registered result to avoid cache-hit -> address chains.
     // 当前 ID 指令为 shift 时也禁止 late-load：否则命中数据会直接进入
     // 桶形移位器，形成 DCache 输出到 EX/MEM1 寄存器的长组合路径。
+    wire id_ex_reg_wen_valid = id_ex_valid_o && id_ex_reg_wen;
+    wire id_ex_is_load_valid = id_ex_valid_o && id_ex_is_load_o;
+
     wire        ex_load_late_bypass_allowed =
-        id_ex_is_load_o &&
+        id_ex_is_load_valid &&
         ex_load_hits_dram_o &&
         !ctrl_kill_ex_o &&
         !id_dec_is_branch_o &&
@@ -673,6 +678,7 @@ module open_risc_v #(
         .pred_ghr_o         (if_id_pred_ghr_o),
         .pred_type_o        (if_id_pred_type_o),
         .inst_o             (if_id_inst_o),
+        .valid_o            (if_id_valid_o),
         .load_valid_o       (if_id_load_valid_o),
         .load_pred_taken_o  (if_id_load_pred_taken_o),
         .load_pred_target_o (if_id_load_pred_target_o),
@@ -754,8 +760,8 @@ module open_risc_v #(
         .id_use_rs2_i          (id_use_rs2_o),
         .id_use_base_addr_i    (id_use_base_addr_o),
         .ex_rd_addr_i          (id_ex_rd_addr_o),
-        .ex_rd_wen_i           (id_ex_reg_wen),
-        .ex_is_load_i          (id_ex_is_load_o),
+        .ex_rd_wen_i           (id_ex_reg_wen_valid),
+        .ex_is_load_i          (id_ex_is_load_valid),
         .ex_load_hits_dram_i   (ex_load_late_bypass_allowed),
         .mem1_rd_addr_i        (ex_mem_pipe_rd_addr_o),
         .mem1_rd_wen_i         (ex_mem_rd_wen_o),
@@ -775,7 +781,11 @@ module open_risc_v #(
         .clk             (clk),
         .rst             (rst),
         .hold_flag_i     (hdu_hold_flag_o),
-        .flush_flag_i    (hdu_flush_flag_o | frontend_flush_idex),
+        // Flush invalidates one bit only.  The legacy bundle-clear input is
+        // constant so no replay/flush cone reaches hundreds of register Rs.
+        .flush_flag_i    (1'b0),
+        .valid_i         (if_id_valid_o),
+        .valid_flush_i   (hdu_flush_flag_o | frontend_flush_idex),
         .inst_i          (id_inst_o),
         .inst_addr_i     (id_inst_addr_o),
         .op1_i           (id_op1_o),
@@ -821,6 +831,7 @@ module open_risc_v #(
         .ex_ras_should_pop_jalr_i (id_dec_ras_should_pop_jalr_o),
         .ex_ras_predicted_jalr_i  (id_dec_ras_predicted_jalr_o),
         .inst_o          (id_ex_inst_o),
+        .valid_o         (id_ex_valid_o),
         .inst_addr_o     (id_ex_inst_addr_o),
         .op1_o           (id_ex_op1_o),
         .op2_o           (id_ex_op2_o),
@@ -911,6 +922,7 @@ module open_risc_v #(
         .id_use_rs1_i         (id_use_rs1_o),
         .id_use_rs2_i         (id_use_rs2_o),
         .ex_inst_i            (id_ex_inst_o),
+        .ex_valid_i           (id_ex_valid_o),
         .ex_load_hits_dram_i  (ex_load_late_bypass_allowed),
         .id_ex_rs1_fwd_sel_i  (id_ex_rs1_fwd_sel_o),
         .id_ex_rs2_fwd_sel_i  (id_ex_rs2_fwd_sel_o),
@@ -931,6 +943,7 @@ module open_risc_v #(
     ex ex_inst (
         .clk                 (clk),
         .rst                 (rst),
+        .valid_i             (id_ex_valid_o),
         .timer_irq_i         (timer_irq_i),
         .inst_i              (id_ex_inst_o),
         .inst_addr_i         (id_ex_inst_addr_o),

@@ -4,6 +4,7 @@
 module ex (
     input  wire        clk,
     input  wire        rst,
+    input  wire        valid_i,
     input  wire        timer_irq_i,
     input  wire [31:0] inst_i,
     input  wire [31:0] inst_addr_i,
@@ -176,7 +177,7 @@ module ex (
         (rv32m_iter_done_w == 1'b0);
     wire csr_timer_irq_trap_w;
     assign timer_irq_trap_o = csr_timer_irq_trap_w;
-    wire rv32m_start = (kill_i == 1'b0) &&
+    wire rv32m_start = valid_i && (kill_i == 1'b0) &&
                        !csr_timer_irq_trap_w && rv32m_start_slot;
     wire rv32m_hide_ex = rv32m_start_slot || rv32m_iter_busy_w;
 
@@ -204,7 +205,7 @@ module ex (
         .rst            (rst),
         // This core's executable IROM starts at 0x8000_0000.  Redirect
         // bubbles carry inst_addr=0 and must never become interrupt points.
-        .valid_i        ((kill_i == 1'b0) && inst_addr_i[31] &&
+        .valid_i        (valid_i && (kill_i == 1'b0) && inst_addr_i[31] &&
                          !rv32m_iter_busy_w && !rv32m_iter_done_w),
         .timer_irq_i    (timer_irq_i),
         .inst_i         (inst_i),
@@ -256,7 +257,7 @@ module ex (
         bp_jalr_update_ghr_o = {`BP_GHR_WIDTH{1'b0}};
         bp_jalr_update_is_call_o = 1'b0;
         bp_actual_taken_o  = 1'b0;
-        inst_o             = kill_i ? `INST_NOP : inst_i;
+        inst_o             = (kill_i || !valid_i) ? `INST_NOP : inst_i;
 
         if (rv32m_hide_ex == 1'b1) begin
             // Hide the in-flight M instruction from later stages until the
@@ -475,7 +476,7 @@ module ex (
             inst_o           = `INST_NOP;
         end
 
-        if (kill_i == 1'b1) begin
+        if ((kill_i == 1'b1) || (valid_i == 1'b0)) begin
             rd_wen_o         = 1'b0;
             mem_wd_reg_o     = 4'b0000;
             jump_en_o        = 1'b0;

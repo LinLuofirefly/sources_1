@@ -10,6 +10,7 @@ module Hazard_detection_unit (
     input  wire        id_use_rs2_i,
     input wire ex_done_i,
     input  wire [31:0] ex_inst_i,
+    input  wire        ex_valid_i,
     input  wire        ex_load_hits_dram_i,
     input  wire [2:0]  id_ex_rs1_fwd_sel_i,
     input  wire [2:0]  id_ex_rs2_fwd_sel_i,
@@ -46,6 +47,7 @@ module Hazard_detection_unit (
     // ================================================================
 
     wire ex_writes_rd =
+        ex_valid_i &&
         (ex_rd != 5'b0) &&
         (ex_opcode != `INST_TYPE_S) &&
         (ex_opcode != `INST_TYPE_B);
@@ -123,8 +125,9 @@ module Hazard_detection_unit (
     // MEM1.  Cache misses kill that speculative EX result and hold the
     // consumer for one-cycle replay from MEM2.
     wire ex_uses_late_load =
-        (id_ex_rs1_fwd_sel_i == FWD_LATE_LOAD) ||
-        (id_ex_rs2_fwd_sel_i == FWD_LATE_LOAD);
+        ex_valid_i &&
+        ((id_ex_rs1_fwd_sel_i == FWD_LATE_LOAD) ||
+         (id_ex_rs2_fwd_sel_i == FWD_LATE_LOAD));
 
     assign late_load_miss_o =
         ex_uses_late_load &&

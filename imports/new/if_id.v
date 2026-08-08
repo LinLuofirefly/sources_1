@@ -26,6 +26,9 @@ module if_id (
     output reg  [`BP_GHR_WIDTH-1:0] pred_ghr_o,
     output reg  [1:0]  pred_type_o,
     output reg  [31:0] inst_o,
+    // State-valid for the instruction currently resident in IF/ID.  This is
+    // deliberately separate from load_valid_o, which is only a load pulse.
+    output reg         valid_o,
 
     // 本拍 IF/ID 是否真正装载/回放了一个包。
     // 用于顶层判断 replay predicted-taken 是否需要 redirect。
@@ -59,6 +62,7 @@ module if_id (
             pred_target_o        <= 32'b0;
             pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
             pred_type_o          <= `BP_PRED_NONE;
+            valid_o              <= 1'b0;
 
             load_valid_o         <= 1'b0;
             load_pred_taken_o    <= 1'b0;
@@ -105,6 +109,7 @@ module if_id (
                 pred_target_o        <= hold_pred_target_reg;
                 pred_ghr_o           <= hold_pred_ghr_reg;
                 pred_type_o          <= hold_pred_type_reg;
+                valid_o              <= 1'b1;
 
                 load_valid_o         <= 1'b1;
                 load_pred_taken_o    <= hold_pred_taken_reg;
@@ -128,6 +133,7 @@ module if_id (
                 pred_target_o        <= pred_target_i;
                 pred_ghr_o           <= pred_ghr_i;
                 pred_type_o          <= pred_type_i;
+                valid_o              <= 1'b1;
 
                 load_valid_o         <= 1'b1;
                 load_pred_taken_o    <= pred_taken_i;
@@ -140,6 +146,7 @@ module if_id (
                 pred_target_o        <= 32'b0;
                 pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
                 pred_type_o          <= `BP_PRED_NONE;
+                valid_o              <= 1'b0;
 
                 load_valid_o         <= 1'b0;
                 load_pred_taken_o    <= 1'b0;
