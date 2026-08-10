@@ -156,6 +156,11 @@ set dram_ip [require_one [get_ips -quiet Mem_RAM] {IP 'Mem_RAM'}]
 if {$options(check_only)} {
     puts "FPGA_BUILD_CHECK: top=$project_top part=$project_part"
     puts "FPGA_BUILD_CHECK: current_pll_mhz=[get_property CONFIG.CLKOUT2_REQUESTED_OUT_FREQ $pll_ip]"
+    set current_irom_depth [get_property CONFIG.Write_Depth_A $irom_ip]
+    puts "FPGA_BUILD_CHECK: irom_words=$current_irom_depth"
+    if {$current_irom_depth != 8192} {
+        fail_build "Mem_IROM must be 8192 words (32 KiB), got $current_irom_depth" 3
+    }
     puts "FPGA_BUILD_CHECK: would bind Mem_IROM to $irom_coe"
     puts "FPGA_BUILD_CHECK: would bind Mem_RAM to $dram_coe"
     puts {FPGA_BUILD_CHECK: PASS (project and firmware inputs are usable)}
@@ -173,6 +178,7 @@ set_property generic [list \
     P_CPU_UART_BAUD_RATE=$options(baud)] $source_set
 
 # Bind the requested software image before regenerating the BRAM output products.
+set_property CONFIG.Write_Depth_A 8192 $irom_ip
 set_property CONFIG.Load_Init_File true $irom_ip
 set_property CONFIG.Coe_File $irom_coe $irom_ip
 set_property CONFIG.Load_Init_File true $dram_ip

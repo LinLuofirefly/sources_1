@@ -13,6 +13,7 @@ RTT_PORT    := $(RTT_ROOT)/port-reference
 BUILD_DIR ?= build
 SIM_DIR   := $(BUILD_DIR)/sim
 ELF       := $(BUILD_DIR)/rtthread_nano.elf
+IROM_WORDS ?= 8192
 
 # 190 MHz CPU clock / 100 Hz RT-Thread tick.
 TIMER_PERIOD_CYCLES ?= 1900000
@@ -82,7 +83,7 @@ $(BUILD_DIR)/dram.bin: $(ELF)
 	$(OBJCOPY) -O binary --only-section=.rodata --only-section=.data $< $@
 
 $(SIM_DIR)/irom.mem: $(BUILD_DIR)/irom.bin ../tools/bin_to_mem.py
-	python3 ../tools/bin_to_mem.py $< $@ --words 4096
+	python3 ../tools/bin_to_mem.py $< $@ --words $(IROM_WORDS)
 
 $(SIM_DIR)/dram.mem: $(BUILD_DIR)/dram.bin ../tools/bin_to_mem.py
 	python3 ../tools/bin_to_mem.py $< $@ --words 65536

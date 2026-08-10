@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#define HAS_FLOAT       0
+#define HAS_FLOAT       1
 #define HAS_TIME_H      0
 #define USE_CLOCK       0
 #define HAS_STDIO       0
@@ -36,6 +36,8 @@ typedef ee_u32         ee_f32;
 
 #define CORETIMETYPE ee_u32
 typedef ee_u32 CORE_TICKS;
+
+#define COREMARK_COUNTER_HZ         1000u
 
 #define SEED_METHOD       SEED_VOLATILE
 #define MEM_METHOD        MEM_STATIC

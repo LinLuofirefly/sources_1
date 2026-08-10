@@ -16,12 +16,13 @@ COREMARK_ROOT := ../third_party/coremark
 BUILD_DIR ?= build
 MEM_DIR   := $(BUILD_DIR)/mem
 ELF       := $(BUILD_DIR)/rtthread_coremark.elf
+IROM_WORDS ?= 8192
 
-# 190 MHz CPU clock / 100 Hz RT-Thread tick.  The default 10,000-iteration
-# performance run takes more than ten seconds and therefore uses real tick
-# timing instead of the former RTL-simulation time clamp.
-TIMER_PERIOD_CYCLES ?= 1900000
+# 210 MHz CPU clock / 100 Hz RT-Thread scheduling tick.  CoreMark elapsed time
+# itself comes from the independent 1 kHz hardware counter in perip_bridge.
+TIMER_PERIOD_CYCLES ?= 2100000
 COREMARK_ITERATIONS ?= 10000
+COREMARK_ALLOW_SHORT_RUN ?= 0
 OPT_FLAGS            ?= -O1
 
 ARCH_FLAGS := -march=rv32im_zicsr -mabi=ilp32 -mcmodel=medany
@@ -34,6 +35,7 @@ COMMON_FLAGS := $(ARCH_FLAGS) $(OPT_FLAGS) -g3 -ffreestanding -fno-builtin \
 	-DCOREMARK_OPT_LEVEL=$(OPT_FLAGS) \
 	-DBSP_TIMER_PERIOD_CYCLES=$(TIMER_PERIOD_CYCLES) \
 	-DITERATIONS=$(COREMARK_ITERATIONS) -DPERFORMANCE_RUN=1 \
+	-DCOREMARK_ALLOW_SHORT_RUN=$(COREMARK_ALLOW_SHORT_RUN) \
 	-Wall -Wextra -Wno-unused-parameter
 LDFLAGS := $(ARCH_FLAGS) -nostdlib -nostartfiles -static -no-pie \
 	-Wl,--gc-sections -Wl,--build-id=none \
@@ -105,7 +107,7 @@ $(BUILD_DIR)/dram.bin: $(ELF)
 	$(OBJCOPY) -O binary --only-section=.rodata --only-section=.data $< $@
 
 $(MEM_DIR)/irom.mem: $(BUILD_DIR)/irom.bin $(TOOLS_ROOT)/bin_to_mem.py
-	python3 $(TOOLS_ROOT)/bin_to_mem.py $< $@ --words 4096
+	python3 $(TOOLS_ROOT)/bin_to_mem.py $< $@ --words $(IROM_WORDS)
 
 $(MEM_DIR)/dram.mem: $(BUILD_DIR)/dram.bin $(TOOLS_ROOT)/bin_to_mem.py
 	python3 $(TOOLS_ROOT)/bin_to_mem.py $< $@ --words 65536

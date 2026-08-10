@@ -117,6 +117,31 @@ module ex (
     wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
     wire [31:0] jalr_target_addr   = {jalr_target_sum[31:1], 1'b0};
     wire [31:0] fallthrough_addr   = inst_addr_i + 32'd4;
+
+    // Carry-save equality check for the JALR target.  Comparing
+    // pred_target_i against jalr_target_addr directly can place a second
+    // carry chain after the 32-bit target adder on the redirect path.
+    //
+    // For A=fwd_jalr_base_i[31:1], B=jump_offset_i[31:1],
+    // P=pred_target_i[31:1] and c1=base[0]&offset[0]:
+    //   A + B + c1 == P  (mod 2^31)
+    // is equivalent to
+    //   (A ^ B ^ ~P) == ~({majority(A,B,~P)[29:0], c1}).
+    // This maps to LUT logic plus an AND reduction, without a carry chain.
+    wire [30:0] jalr_cmp_a  =  fwd_jalr_base_i[31:1];
+    wire [30:0] jalr_cmp_b  =  jump_offset_i[31:1];
+    wire [30:0] jalr_cmp_np = ~pred_target_i[31:1];
+    wire        jalr_cmp_c1 =  fwd_jalr_base_i[0] & jump_offset_i[0];
+
+    wire [30:0] jalr_csa_s  = jalr_cmp_a ^ jalr_cmp_b ^ jalr_cmp_np;
+    wire [30:0] jalr_csa_cy = (jalr_cmp_a  & jalr_cmp_b ) |
+                              (jalr_cmp_a  & jalr_cmp_np) |
+                              (jalr_cmp_b  & jalr_cmp_np);
+    wire [30:0] jalr_csa_v  = {jalr_csa_cy[29:0], jalr_cmp_c1};
+
+    // jalr_target_addr[0] is forced low, so the predicted bit 0 must match.
+    wire jalr_target_match =
+        ~pred_target_i[0] & (&(jalr_csa_s ^ jalr_csa_v));
     reg branch_condition_met;
 
     always @(*) begin
@@ -159,7 +184,7 @@ module ex (
         dec_is_jalr_i &&
         (
             !jalr_pred_taken_w ||
-            (pred_target_i != jalr_target_addr)
+            !jalr_target_match
         );
     localparam [13:0] DRAM_REGION_TAG = 14'h2004;
 

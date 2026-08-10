@@ -372,9 +372,14 @@ for (i = 0; i < MULTITHREAD; i++)
 #endif
     if (time_in_secs(total_time) < 10)
     {
+#if COREMARK_ALLOW_SHORT_RUN
+        ee_printf(
+            "WARNING! Short functional run; score is not reportable.\n");
+#else
         ee_printf(
             "ERROR! Must execute for at least 10 secs for a valid result!\n");
         total_errors++;
+#endif
     }
 
     ee_printf("Iterations       : %lu\n",

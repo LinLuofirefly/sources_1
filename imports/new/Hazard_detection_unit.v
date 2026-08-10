@@ -11,7 +11,10 @@ module Hazard_detection_unit (
     input wire ex_done_i,
     input  wire [31:0] ex_inst_i,
     input  wire        ex_valid_i,
-    input  wire        ex_load_hits_dram_i,
+    // Late-load conditions independent of the EX address adder.
+    input  wire        ex_load_late_bypass_pre_i,
+    // Raw DRAM-region hit, available only after the EX address adder.
+    input  wire        ex_load_hits_dram_raw_i,
     input  wire [2:0]  id_ex_rs1_fwd_sel_i,
     input  wire [2:0]  id_ex_rs2_fwd_sel_i,
     input  wire [31:0] mem1_inst_i,
@@ -105,10 +108,9 @@ module Hazard_detection_unit (
 
     wire id_is_shift = id_is_shift_imm || id_is_shift_reg;
 
-    wire ex_load_dep =
+    wire ex_load_dep_pre =
         (ex_opcode == `INST_TYPE_L) &&
-        ex_dep_match &&
-        (!ex_load_hits_dram_i || id_is_shift);
+        ex_dep_match;
 
     wire mem1_load_dep =
         (mem1_opcode == `INST_TYPE_L) &&
@@ -134,38 +136,33 @@ module Hazard_detection_unit (
         (mem1_opcode == `INST_TYPE_L) &&
         !mem1_load_cache_hit_i;
 
+    // Split the dependency cone into an early part and the one late term
+    // driven by the EX address/DRAM-range result.  Algebraically this is the
+    // same as:
+    //   ex_load_dep = pre & (~hits | shift)
+    //               = (pre & shift) | (pre & ~shift & ~hits).
+    (* keep = "true" *) wire dep_shift =
+        ex_load_dep_pre & id_is_shift;
+    (* keep = "true" *) wire dep_nohit =
+        ex_load_dep_pre & ~id_is_shift;
+
+    (* keep = "true" *) wire dep_early =
+        dep_shift | mem1_load_dep | mem2_slow_load_dep;
+
+    (* keep = "true" *) wire hold_early =
+        (ex_busy_i & ~ex_done_i) | dep_early | late_load_miss_o;
+
+    (* keep = "true" *) wire flush_early =
+        dep_early & ~late_load_miss_o;
+
+    // The late DRAM hit participates only in the final hold/flush LUT.
+    wire dep_late_stall =
+        dep_nohit &
+        ~(ex_load_late_bypass_pre_i & ex_load_hits_dram_raw_i);
+
     always @(*) begin
-        hold_flag_o       = 1'b0;
-        flush_flag_o      = 1'b0;
-
-        if (ex_busy_i == 1'b1) begin
-            hold_flag_o = 1'b1;
-        end
-        if (ex_done_i == 1'b1) begin
-            // EX emits the completed M instruction in this cycle.  Let the
-            // waiting instruction replace it instead of inserting a bubble.
-            hold_flag_o  = 1'b0;
-            flush_flag_o = 1'b0;
-        end
-        if (ex_load_dep) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
-        end
-
-        if (mem1_load_dep) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
-        end
-
-        if (mem2_slow_load_dep) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b1;
-        end
-
-        if (late_load_miss_o) begin
-            hold_flag_o  = 1'b1;
-            flush_flag_o = 1'b0;
-        end
-
+        hold_flag_o = hold_early | dep_late_stall;
+        flush_flag_o =
+            flush_early | (dep_late_stall & ~late_load_miss_o);
     end
 endmodule

@@ -355,14 +355,19 @@ module open_risc_v #(
     wire id_ex_reg_wen_valid = id_ex_valid_o && id_ex_reg_wen;
     wire id_ex_is_load_valid = id_ex_valid_o && id_ex_is_load_o;
 
-    wire        ex_load_late_bypass_allowed =
+    // Conditions independent of the EX address adder form an early cone.
+    // ex_load_hits_dram_o is kept separate so it enters only the HDU's final
+    // hold/flush LUT.
+    (* keep = "true" *) wire ex_load_late_bypass_pre =
         id_ex_is_load_valid &&
-        ex_load_hits_dram_o &&
         !ctrl_kill_ex_o &&
         !id_dec_is_branch_o &&
         !id_dec_is_jalr_o &&
         !id_dec_is_load_o &&
         !id_dec_has_deep_alu;
+
+    wire ex_load_late_bypass_allowed =
+        ex_load_late_bypass_pre && ex_load_hits_dram_o;
 
     assign mem_rd_reg_o  = ex_is_load_o;
     assign mem_rd_addr_o = ex_rd_mem_addr_o;
@@ -923,7 +928,8 @@ module open_risc_v #(
         .id_use_rs2_i         (id_use_rs2_o),
         .ex_inst_i            (id_ex_inst_o),
         .ex_valid_i           (id_ex_valid_o),
-        .ex_load_hits_dram_i  (ex_load_late_bypass_allowed),
+        .ex_load_late_bypass_pre_i(ex_load_late_bypass_pre),
+        .ex_load_hits_dram_raw_i  (ex_load_hits_dram_o),
         .id_ex_rs1_fwd_sel_i  (id_ex_rs1_fwd_sel_o),
         .id_ex_rs2_fwd_sel_i  (id_ex_rs2_fwd_sel_o),
         .mem1_inst_i          (ex_mem_inst_o),

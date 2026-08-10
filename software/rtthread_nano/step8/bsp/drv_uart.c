@@ -35,3 +35,13 @@ void bsp_uart_flush(void)
         __asm__ volatile ("" ::: "memory");
     }
 }
+
+int bsp_uart_getchar_nonblocking(void)
+{
+    if ((BSP_MMIO32(BSP_UART_RX_STATUS_ADDR) & 1u) == 0u)
+    {
+        return -1;
+    }
+
+    return (int)(BSP_MMIO32(BSP_UART_RX_DATA_ADDR) & 0xffu);
+}
