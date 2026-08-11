@@ -501,7 +501,15 @@ module ex (
             inst_o           = `INST_NOP;
         end
 
-        if ((kill_i == 1'b1) || (valid_i == 1'b0)) begin
+        // Once an RV32M operation has been accepted by rv32m_start, the
+        // iterative unit and the metadata registers above own that
+        // instruction until done.  ID/EX may subsequently lose its valid bit
+        // because of a younger frontend replay/flush; that must not cancel the
+        // already accepted result.  No older redirect can coexist with an M
+        // operation in this single-issue EX stage, and timer interrupts are
+        // explicitly deferred while the iterator is active.
+        if (((kill_i == 1'b1) || (valid_i == 1'b0)) &&
+            (rv32m_iter_done_w == 1'b0)) begin
             rd_wen_o         = 1'b0;
             mem_wd_reg_o     = 4'b0000;
             jump_en_o        = 1'b0;

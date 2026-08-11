@@ -22,7 +22,7 @@
 
 module top #(
     parameter         P_CPU_CONSOLE_ON_UART = 1'b1,
-    parameter integer P_CPU_CLK_HZ          = 190000000,
+    parameter integer P_CPU_CLK_HZ          = 200000000,
     parameter integer P_CPU_UART_BAUD_RATE  = 115200
 )(
     input  wire i_sys_clk_p         ,
