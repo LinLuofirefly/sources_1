@@ -102,6 +102,17 @@ module branch_predictor #(
    (* ram_style = "distributed" *) reg [1:0]
        itc_chooser [0:ITC_CHOOSER_SIZE-1];
 
+   // Two-stage indirect-predictor training pipeline.  Stage N reads and
+   // compares the history/chooser entries, then captures a complete write
+   // packet.  Stage N+1 only writes that packet into the two tables.
+   reg jalr_update_pending_r;
+   reg [HIST_ITC_ADDR_WIDTH-1:0] jalr_hist_itc_idx_r;
+   reg [HIST_ITC_TAG_WIDTH-1:0]  jalr_hist_itc_tag_r;
+   reg [31:0]                    jalr_hist_itc_target_r;
+   reg [ITC_CHOOSER_ADDR_WIDTH-1:0] jalr_itc_chooser_idx_r;
+   reg [ITC_CHOOSER_TAG_WIDTH-1:0]  jalr_itc_chooser_tag_r;
+   reg [1:0]                        jalr_itc_chooser_state_r;
+
    function [BHT_ADDR_WIDTH-1:0] pc_hash;
         input [(2*BHT_ADDR_WIDTH)-1:0] pc_bits;
         begin
@@ -262,25 +273,56 @@ module branch_predictor #(
 
     // Chooser training observes the two candidates before this update edge.
     // Architectural recovery still uses the prediction packet carried to EX;
-    // these wires affect chooser quality only, never correctness.
+    // these wires affect chooser quality only, never correctness.  A pending
+    // Stage-N+1 write is forwarded into the following Stage-N read so that
+    // back-to-back JALR updates to the same index retain the original
+    // one-update-per-cycle training semantics.
     wire update_itc_hit =
         itc_valid[update_itc_idx] &&
         (itc_tag[update_itc_idx] ==
          jalr_update_pc_i[31:ITC_ADDR_WIDTH+2]);
-    wire update_hist_itc_hit =
-        hist_itc_valid[update_hist_itc_idx] &&
-        (hist_itc_tag[update_hist_itc_idx] ==
-         indirect_pc_tag(jalr_update_pc_i[31:2]));
-    wire update_itc_chooser_hit =
-        itc_chooser_valid[update_itc_chooser_idx] &&
-        (itc_chooser_tag[update_itc_chooser_idx] ==
-         jalr_update_pc_i[31:ITC_CHOOSER_ADDR_WIDTH+2]);
+    wire [HIST_ITC_TAG_WIDTH-1:0] update_hist_itc_tag =
+        indirect_pc_tag(jalr_update_pc_i[31:2]);
+    wire [ITC_CHOOSER_TAG_WIDTH-1:0] update_itc_chooser_tag =
+        jalr_update_pc_i[31:ITC_CHOOSER_ADDR_WIDTH+2];
+    wire update_hist_pending_match =
+        jalr_update_pending_r &&
+        (jalr_hist_itc_idx_r == update_hist_itc_idx);
+    wire update_chooser_pending_match =
+        jalr_update_pending_r &&
+        (jalr_itc_chooser_idx_r == update_itc_chooser_idx);
+    wire update_hist_itc_hit = update_hist_pending_match ?
+        (jalr_hist_itc_tag_r == update_hist_itc_tag) :
+        (hist_itc_valid[update_hist_itc_idx] &&
+         (hist_itc_tag[update_hist_itc_idx] == update_hist_itc_tag));
+    wire [31:0] update_hist_itc_target = update_hist_pending_match ?
+        jalr_hist_itc_target_r : hist_itc_target[update_hist_itc_idx];
+    wire update_itc_chooser_hit = update_chooser_pending_match ?
+        (jalr_itc_chooser_tag_r == update_itc_chooser_tag) :
+        (itc_chooser_valid[update_itc_chooser_idx] &&
+         (itc_chooser_tag[update_itc_chooser_idx] ==
+          update_itc_chooser_tag));
+    wire [1:0] update_itc_chooser_state = update_chooser_pending_match ?
+        jalr_itc_chooser_state_r : itc_chooser[update_itc_chooser_idx];
     wire update_itc_correct =
         update_itc_hit &&
         (itc_target[update_itc_idx] == jalr_update_target_i);
     wire update_hist_itc_correct =
         update_hist_itc_hit &&
-        (hist_itc_target[update_hist_itc_idx] == jalr_update_target_i);
+        (update_hist_itc_target == jalr_update_target_i);
+    wire update_itc_prefers_last =
+        update_itc_correct && !update_hist_itc_correct;
+    wire update_itc_prefers_history =
+        update_hist_itc_correct && !update_itc_correct;
+    wire [1:0] update_itc_chooser_next = !update_itc_chooser_hit ?
+        (jalr_update_is_call_i ? 2'b01 : 2'b10) :
+        (update_itc_prefers_last &&
+         (update_itc_chooser_state != 2'b00)) ?
+            (update_itc_chooser_state - 1'b1) :
+        (update_itc_prefers_history &&
+         (update_itc_chooser_state != 2'b11)) ?
+            (update_itc_chooser_state + 1'b1) :
+        update_itc_chooser_state;
 
     integer i;
     integer j;
@@ -335,6 +377,7 @@ module branch_predictor #(
             ghr_r       <= {BHT_ADDR_WIDTH{1'b0}};
             ras_sp_r    <= {RAS_PTR_WIDTH{1'b0}};
             ras_count_r <= {RAS_PTR_WIDTH+1{1'b0}};
+            jalr_update_pending_r <= 1'b0;
         end else begin
             if (update_en_i) begin
                 btb_valid[update_btb_idx] <= 1'b1;
@@ -352,38 +395,36 @@ module branch_predictor #(
                 ghr_r <= {ghr_r[BHT_ADDR_WIDTH-2:0], actual_taken_i};
             end
 
+            // Stage N+1: only write the packet prepared on the previous edge.
+            if (jalr_update_pending_r) begin
+                hist_itc_valid[jalr_hist_itc_idx_r] <= 1'b1;
+                hist_itc_tag[jalr_hist_itc_idx_r] <= jalr_hist_itc_tag_r;
+                hist_itc_target[jalr_hist_itc_idx_r] <=
+                    jalr_hist_itc_target_r;
+
+                itc_chooser_valid[jalr_itc_chooser_idx_r] <= 1'b1;
+                itc_chooser_tag[jalr_itc_chooser_idx_r] <=
+                    jalr_itc_chooser_tag_r;
+                itc_chooser[jalr_itc_chooser_idx_r] <=
+                    jalr_itc_chooser_state_r;
+            end
+
+            // Stage N: keep the simple last-target table at its original
+            // latency, but register all history/chooser write information.
             if (jalr_update_en_i) begin
-                // Both components learn every non-return JALR.  Calls get an
-                // immediate last-target hit; jump-table entries accumulate
-                // distinct targets under different history contexts.
                 itc_valid[update_itc_idx] <= 1'b1;
                 itc_tag[update_itc_idx] <=
                     jalr_update_pc_i[31:ITC_ADDR_WIDTH+2];
                 itc_target[update_itc_idx] <= jalr_update_target_i;
 
-                hist_itc_valid[update_hist_itc_idx] <= 1'b1;
-                hist_itc_tag[update_hist_itc_idx] <=
-                    indirect_pc_tag(jalr_update_pc_i[31:2]);
-                hist_itc_target[update_hist_itc_idx] <= jalr_update_target_i;
-
-                if (!update_itc_chooser_hit) begin
-                    itc_chooser_valid[update_itc_chooser_idx] <= 1'b1;
-                    itc_chooser_tag[update_itc_chooser_idx] <=
-                        jalr_update_pc_i[31:ITC_CHOOSER_ADDR_WIDTH+2];
-                    itc_chooser[update_itc_chooser_idx] <=
-                        jalr_update_is_call_i ? 2'b01 : 2'b10;
-                end else if (update_itc_correct && !update_hist_itc_correct) begin
-                    if (itc_chooser[update_itc_chooser_idx] != 2'b00) begin
-                        itc_chooser[update_itc_chooser_idx] <=
-                            itc_chooser[update_itc_chooser_idx] - 1'b1;
-                    end
-                end else if (update_hist_itc_correct && !update_itc_correct) begin
-                    if (itc_chooser[update_itc_chooser_idx] != 2'b11) begin
-                        itc_chooser[update_itc_chooser_idx] <=
-                            itc_chooser[update_itc_chooser_idx] + 1'b1;
-                    end
-                end
+                jalr_hist_itc_idx_r <= update_hist_itc_idx;
+                jalr_hist_itc_tag_r <= update_hist_itc_tag;
+                jalr_hist_itc_target_r <= jalr_update_target_i;
+                jalr_itc_chooser_idx_r <= update_itc_chooser_idx;
+                jalr_itc_chooser_tag_r <= update_itc_chooser_tag;
+                jalr_itc_chooser_state_r <= update_itc_chooser_next;
             end
+            jalr_update_pending_r <= jalr_update_en_i;
 
             case ({ras_push_en_i, ras_pop_en_i})
                 2'b01: begin
