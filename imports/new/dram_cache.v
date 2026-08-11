@@ -127,6 +127,12 @@ module dram_cache #(
     reg [31:0] read_data_r;
     reg [TAG_BITS-1:0] read_tag_r;
     reg read_valid_r;
+    // Refill pipeline: capture the complete fill packet in cycle N, then
+    // update data/tag/valid together in cycle N+1.
+    reg refill_pending_r;
+    reg [INDEX_BITS-1:0] refill_idx_r;
+    reg [TAG_BITS-1:0] refill_tag_r;
+    reg [31:0] refill_word_r;
     integer i;
     wire store_hit =
         store_req &&
@@ -150,8 +156,15 @@ module dram_cache #(
     // 更新外部 DRAM，不允许污染本次 refill 的 cache line。
     wire [31:0] refill_word =
         merge_store_word(refill_word_after_old_store, store_data_i, refill_store_wstrb);
-    wire data_write_refill = refill_req;
-    wire data_write_store_hit = store_hit && !refill_store_same_idx;
+    wire pending_store_same_idx =
+        refill_pending_r && (refill_idx_r == store_idx);
+    wire pending_store_same_line =
+        pending_store_same_idx && store_req && (refill_tag_r == store_tag);
+    wire [3:0] pending_store_wstrb =
+        pending_store_same_line ? store_wstrb_i : 4'b0000;
+    wire [31:0] refill_commit_word =
+        merge_store_word(refill_word_r, store_data_i, pending_store_wstrb);
+    wire data_write_store_hit = store_hit && !pending_store_same_idx;
 
     always @(posedge clk) begin
         if (rst == 1'b0) begin
@@ -170,25 +183,38 @@ module dram_cache #(
             for (i = 0; i < LINES; i = i + 1) begin
                 valid_array[i] <= 1'b0;
             end
-        end else if (refill_req) begin
-            valid_array[refill_idx] <= 1'b1;
+        end else if (refill_pending_r) begin
+            valid_array[refill_idx_r] <= 1'b1;
         end
     end
 
     always @(posedge clk) begin
-        if (rst == 1'b1 && refill_req) begin
-            tag_array[refill_idx] <= refill_tag;
+        if (rst == 1'b1 && refill_pending_r) begin
+            tag_array[refill_idx_r] <= refill_tag_r;
         end
     end
 
     always @(posedge clk) begin
         if (rst == 1'b1) begin
-            if (data_write_refill) begin
-                data_array[refill_idx] <= refill_word;
+            if (refill_pending_r) begin
+                data_array[refill_idx_r] <= refill_commit_word;
             end
             if (data_write_store_hit) begin
                 data_array[store_idx] <=
                     merge_store_word(data_array[store_idx], store_data_i, store_wstrb_i);
+            end
+        end
+    end
+
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            refill_pending_r <= 1'b0;
+        end else begin
+            refill_pending_r <= refill_req;
+            if (refill_req) begin
+                refill_idx_r  <= refill_idx;
+                refill_tag_r  <= refill_tag;
+                refill_word_r <= refill_word;
             end
         end
     end
