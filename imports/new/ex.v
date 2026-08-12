@@ -13,6 +13,13 @@ module ex (
     input  wire [31:0] fwd_cmp_op2_i,
     input  wire [31:0] fwd_br_op1_i,
     input  wire [31:0] fwd_br_op2_i,
+    input  wire [31:0] branch_fast_load_data_i,
+    input  wire        branch_fast_rs1_i,
+    input  wire        branch_fast_rs2_i,
+    input  wire [31:0] branch_mem2_load_data_i,
+    input  wire        branch_mem2_rs1_i,
+    input  wire        branch_mem2_rs2_i,
+    input  wire        load_dependent_branch_i,
     input  wire [31:0] store_data_i,
     input  wire        pred_taken_i,
     input  wire [31:0] pred_target_i,
@@ -30,6 +37,8 @@ module ex (
 
     output reg  [31:0] jump_addr_o,
     output reg         jump_en_o,
+    output reg  [31:0] load_branch_jump_addr_o,
+    output reg         load_branch_jump_en_o,
 
     output reg  [31:0] inst_o,
 
@@ -94,11 +103,16 @@ module ex (
      wire [31:0] branch_op1 = fwd_br_op1_i;
      wire [31:0] branch_op2 = fwd_br_op2_i;
 
-     // Generate only the three base branch comparisons.
-     // BNE, BGE and BGEU reuse the inverted base results.
-     wire branch_eq          = (branch_op1 == branch_op2);
-     wire branch_lt_signed   = ($signed(branch_op1) < $signed(branch_op2));
-     wire branch_lt_unsigned = (branch_op1 < branch_op2);
+     // Normal branches and load-dependent branches terminate in separate
+     // comparators.  The latter is defined below and feeds only a registered
+     // redirect packet.
+     (* keep = "true" *) wire branch_eq_normal =
+         (branch_op1 == branch_op2);
+     (* keep = "true" *) wire branch_lt_signed_normal =
+         ($signed(branch_op1) < $signed(branch_op2));
+     (* keep = "true" *) wire branch_lt_unsigned_normal =
+         (branch_op1 < branch_op2);
+
      wire alu_less_signed   = ($signed(alu_op1) < $signed(alu_cmp_op2));
      wire alu_less_unsigned = (alu_op1 < alu_cmp_op2);
 
@@ -112,6 +126,46 @@ module ex (
      wire [31:0] sra_mask                = (32'hffff_ffff >> shamt);
      wire [31:0] branch_target_addr = inst_addr_i + branch_offset_i;
      wire [31:0] load_mem_addr      = fwd_load_base_i + mem_offset_i;
+
+    // ================================================================
+    // DRAM 区间命中判断：用进位选择，避开 32 位进位链
+    // ----------------------------------------------------------------
+    // 原写法 (load_mem_addr[31:18] == TAG) 要等整条 32 位加法进位链，
+    // 而 fwd_load_base_i 是转发 mux 的晚到输出，报告里从 bit5 进链要走
+    // 满 7 级 CARRY4，是当前 WNS 路径。
+    //
+    // mem_offset_i = {{20{imm[11]}}, imm}，所以 [31:12] 恒为符号位：
+    //   addr[31:18] = base[31:18] + {14{sgn}} + c18
+    //   c18 由 base[17:0] + {6{sgn},imm[11:0]} 的进位决定，而其中
+    //   [17:12] 段也只是加符号位，可以用 1 级 LUT 代替进位传播：
+    //     sgn=0: c18 = (base[17:12]==6'h3F) & c12
+    //     sgn=1: c18 = ~((base[17:12]==6'd0) & ~c12)
+    //   真正的进位链只剩 base[11:0]+imm[11:0]，12 位 = 3 级 CARRY4。
+    //
+    //   sgn=0: hi = base_hi + c18  -> hit = c18 ? (base_hi==TAG-1) : (base_hi==TAG)
+    //   sgn=1: hi = base_hi -1+c18 -> hit = c18 ? (base_hi==TAG)   : (base_hi==TAG+1)
+    // 三个常数比较互相并行，各 2 级 LUT，与进位链并行展开。
+    // 逐位等价于原式，CPI 不变。
+    // ================================================================
+    localparam [13:0] DRAM_REGION_TAG = 14'h2004;
+
+    wire        load_off_sgn = mem_offset_i[31];
+    wire [12:0] load_lo_sum  = {1'b0, fwd_load_base_i[11:0]} +
+                               {1'b0, mem_offset_i[11:0]};
+    wire        load_c12     = load_lo_sum[12];
+    wire [5:0]  load_mid     = fwd_load_base_i[17:12];
+    wire        load_c18     =
+        load_off_sgn ? ~((load_mid == 6'd0)   & ~load_c12)
+                     :  ((load_mid == 6'h3F)  &  load_c12);
+
+    wire [13:0] load_base_hi   = fwd_load_base_i[31:18];
+    wire        load_hi_eq_t   = (load_base_hi == DRAM_REGION_TAG);
+    wire        load_hi_eq_tm1 = (load_base_hi == (DRAM_REGION_TAG - 14'd1));
+    wire        load_hi_eq_tp1 = (load_base_hi == (DRAM_REGION_TAG + 14'd1));
+
+    wire        load_hits_dram_w =
+        load_off_sgn ? (load_c18 ? load_hi_eq_t   : load_hi_eq_tp1)
+                     : (load_c18 ? load_hi_eq_tm1 : load_hi_eq_t);
      wire [31:0] store_mem_addr     = fwd_store_base_i + mem_offset_i;
     wire [31:0] jal_target_addr    = inst_addr_i + jump_offset_i;
     wire [31:0] jalr_target_sum    = fwd_jalr_base_i + jump_offset_i;
@@ -142,37 +196,68 @@ module ex (
     // jalr_target_addr[0] is forced low, so the predicted bit 0 must match.
     wire jalr_target_match =
         ~pred_target_i[0] & (&(jalr_csa_s ^ jalr_csa_v));
-    reg branch_condition_met;
+    function branch_cond_result;
+        input [2:0] cond_i;
+        input       eq_i;
+        input       lt_signed_i;
+        input       lt_unsigned_i;
+        begin
+            case (cond_i)
+                `BR_EQ:  branch_cond_result = eq_i;
+                `BR_NE:  branch_cond_result = ~eq_i;
+                `BR_LT:  branch_cond_result = lt_signed_i;
+                `BR_GE:  branch_cond_result = ~lt_signed_i;
+                `BR_LTU: branch_cond_result = lt_unsigned_i;
+                `BR_GEU: branch_cond_result = ~lt_unsigned_i;
+                default: branch_cond_result = 1'b0;
+            endcase
+        end
+    endfunction
 
-    always @(*) begin
-        branch_condition_met = 1'b0;
+    wire branch_condition_normal = branch_cond_result(
+        branch_cond_i,
+        branch_eq_normal,
+        branch_lt_signed_normal,
+        branch_lt_unsigned_normal);
+    // Load-dependent branches have their own operand mux and comparator.
+    // This path ends at load_branch_jump_* and is registered by the top
+    // level; it never contributes to the normal same-cycle jump output.
+    wire [31:0] load_branch_op1 =
+        branch_fast_rs1_i ? branch_fast_load_data_i :
+        branch_mem2_rs1_i ? branch_mem2_load_data_i : branch_op1;
+    wire [31:0] load_branch_op2 =
+        branch_fast_rs2_i ? branch_fast_load_data_i :
+        branch_mem2_rs2_i ? branch_mem2_load_data_i : branch_op2;
+    wire load_branch_eq = (load_branch_op1 == load_branch_op2);
+    wire load_branch_lt_signed =
+        ($signed(load_branch_op1) < $signed(load_branch_op2));
+    wire load_branch_lt_unsigned = (load_branch_op1 < load_branch_op2);
+    wire branch_condition_load = branch_cond_result(
+        branch_cond_i, load_branch_eq,
+        load_branch_lt_signed, load_branch_lt_unsigned);
 
-        case (branch_cond_i)
-            `BR_EQ:  branch_condition_met = branch_eq;
-            `BR_NE:  branch_condition_met = ~branch_eq;
-            `BR_LT:  branch_condition_met = branch_lt_signed;
-            `BR_GE:  branch_condition_met = ~branch_lt_signed;
-            `BR_LTU: branch_condition_met = branch_lt_unsigned;
-            `BR_GEU: branch_condition_met = ~branch_lt_unsigned;
-            default: branch_condition_met = 1'b0;
-        endcase
-    end
-
-    wire branch_taken_w = branch_condition_met;
+    wire branch_taken_w = load_dependent_branch_i ?
+        branch_condition_load : branch_condition_normal;
     wire branch_pred_taken_w =
         (pred_type_i == `BP_PRED_BRANCH) && pred_taken_i;
     wire jal_pred_taken_w =
         (pred_type_i == `BP_PRED_JAL) && pred_taken_i;
     wire jalr_pred_taken_w =
         (pred_type_i == `BP_PRED_JALR) && pred_taken_i;
-    wire branch_direction_mismatch_w =
-        (branch_taken_w != branch_pred_taken_w);
+    wire normal_branch_direction_mismatch_w =
+        (branch_condition_normal != branch_pred_taken_w);
+    wire load_branch_direction_mismatch_w =
+        (branch_condition_load != branch_pred_taken_w);
     // Conditional-branch targets are static for this IROM and BTB entries are
     // tag-checked.  On a direction miss, the registered prediction already
     // identifies the correction target, so the late comparison result need
     // not select the 32-bit PC redirect bus.
     wire branch_redirect_w =
-        dec_is_branch_i && branch_direction_mismatch_w;
+        dec_is_branch_i && !load_dependent_branch_i &&
+        normal_branch_direction_mismatch_w;
+    wire load_branch_redirect_w =
+        dec_is_branch_i && load_dependent_branch_i &&
+        load_branch_direction_mismatch_w;
     wire [31:0] branch_redirect_addr_w =
         branch_pred_taken_w ? fallthrough_addr : branch_target_addr;
     wire ex_branch_redirect_valid = branch_redirect_w;
@@ -186,7 +271,6 @@ module ex (
             !jalr_pred_taken_w ||
             !jalr_target_match
         );
-    localparam [13:0] DRAM_REGION_TAG = 14'h2004;
 
     reg  [31:0] rv32m_inst_r;
     reg  [4:0]  rv32m_rd_addr_r;
@@ -263,6 +347,8 @@ module ex (
         rd_wen_o           = 1'b0;
         jump_addr_o        = csr_trap_jump_addr_w;
         jump_en_o          = csr_trap_jump_en_w;
+        load_branch_jump_addr_o = 32'b0;
+        load_branch_jump_en_o = 1'b0;
         mem_rd_addr_o      = 32'b0;
         mem_wd_reg_o       = 4'b0000;
         mem_wd_addr_o      = 32'b0;
@@ -365,6 +451,10 @@ module ex (
                         jump_en_o   = 1'b1;
                         jump_addr_o = ex_branch_redirect_target;
                     end
+                    if (load_branch_redirect_w) begin
+                        load_branch_jump_en_o = 1'b1;
+                        load_branch_jump_addr_o = branch_redirect_addr_w;
+                    end
             end
 
             else if (dec_is_load_i) begin
@@ -372,7 +462,7 @@ module ex (
                     rd_addr_o     = rd_addr_i;
                     rd_wen_o      = rd_wen_i;
                     mem_rd_addr_o = load_mem_addr;
-                    load_hits_dram_o = (load_mem_addr[31:18] == DRAM_REGION_TAG);
+                    load_hits_dram_o = load_hits_dram_w;
             end
 
             else if (dec_is_store_i) begin
@@ -492,6 +582,7 @@ module ex (
             mem_wd_reg_o     = 4'b0000;
             jump_en_o        = 1'b1;
             jump_addr_o      = csr_trap_jump_addr_w;
+            load_branch_jump_en_o = 1'b0;
             is_load_o        = 1'b0;
             load_hits_dram_o = 1'b0;
             bp_update_en_o   = 1'b0;
@@ -513,6 +604,7 @@ module ex (
             rd_wen_o         = 1'b0;
             mem_wd_reg_o     = 4'b0000;
             jump_en_o        = 1'b0;
+            load_branch_jump_en_o = 1'b0;
             is_load_o        = 1'b0;
             load_hits_dram_o = 1'b0;
             bp_update_en_o   = 1'b0;

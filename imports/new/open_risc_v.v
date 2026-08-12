@@ -61,6 +61,7 @@ module open_risc_v #(
 
     reg         bp_pred_flush_d1_r;
     reg         bp_replay_flush_d1_r;
+    reg         bp_load_hold_flush_d1_r;
 
     wire [31:0] pc_jump_addr_o;
     wire        pc_jump_en_o;
@@ -68,6 +69,8 @@ module open_risc_v #(
     reg  [31:0] pc_redirect_target;
     wire        bp_pc_redirect_valid;
     wire [31:0] bp_pc_redirect_target;
+    reg         load_branch_redirect_valid_r;
+    reg  [31:0] load_branch_redirect_target_r;
 
     reg  [31:0] bp_fetch_pc_r;
 
@@ -77,6 +80,7 @@ module open_risc_v #(
     wire        hdu_hold_flag_o;
     wire        hdu_flush_flag_o;
     wire        late_load_miss_o;
+    wire        load_branch_hold_o;
 
     // ------------------------------------------------------------------
     // IF/ID
@@ -88,12 +92,15 @@ module open_risc_v #(
     wire [31:0] if_id_pred_target_o;
     wire [`BP_GHR_WIDTH-1:0] if_id_pred_ghr_o;
     wire [1:0]  if_id_pred_type_o;
+    wire        if_id_redirect_already_issued_o;
 
     wire        if_id_load_valid_o;
     wire        if_id_load_pred_taken_o;
     wire [31:0] if_id_load_pred_target_o;
     wire        if_id_replaying_o;
     wire        if_id_replay_pending_o;
+    wire        if_id_load_branch_redirect_pending_o;
+    wire [31:0] if_id_load_branch_redirect_target_o;
 
     // ------------------------------------------------------------------
     // ID
@@ -212,6 +219,8 @@ module open_risc_v #(
     wire [31:0] ex_inst_o;
     wire [31:0] ex_jump_addr_o;
     wire        ex_jump_en_o;
+    wire [31:0] ex_load_branch_jump_addr_o;
+    wire        ex_load_branch_jump_en_o;
     wire        ex_timer_irq_trap_o;
     wire [31:0] ex_rd_mem_addr_o;
     wire        ex_load_hits_dram_o;
@@ -262,6 +271,11 @@ module open_risc_v #(
     wire [31:0] fwd_cmp_op2_o;
     wire [31:0] fwd_br_op1_o;
     wire [31:0] fwd_br_op2_o;
+    wire        branch_fast_load_valid;
+    wire [31:0] branch_fast_load_data;
+    localparam [2:0] FWD_REG       = 3'd0;
+    localparam [2:0] FWD_LATE_LOAD = 3'd3;
+    localparam [2:0] FWD_MEM2_LOAD = 3'd5;
     wire [31:0] fwd_store_data_o;
     wire [31:0] fwd_load_base_addr_o;
     wire [31:0] fwd_store_base_addr_o;
@@ -278,6 +292,7 @@ module open_risc_v #(
     wire [31:0] ex_mem_wd_data_o;
     wire        ex_mem_is_load_o;
     wire        ex_mem_load_hits_dram_o;
+    wire        ex_mem_load_fast_eligible_o;
     wire [31:0] ex_mem_inst_o;
     wire [31:0] ex_mem_mem_rd_addr_o;
     wire        ex_mem_store_load_fwd_valid_o;
@@ -354,6 +369,20 @@ module open_risc_v #(
     // 桶形移位器，形成 DCache 输出到 EX/MEM1 寄存器的长组合路径。
     wire id_ex_reg_wen_valid = id_ex_valid_o && id_ex_reg_wen;
     wire id_ex_is_load_valid = id_ex_valid_o && id_ex_is_load_o;
+    wire ex_fast_load_cache_hit;
+    wire store_load_fwd_valid_ex;
+
+    // Dedicated simple-address cone.  The architectural load path keeps its
+    // general forwarding mux; only this early probe uses raw base + immediate.
+    wire [31:0] ex_fast_load_addr =
+        id_ex_base_addr_o + id_ex_mem_offset_o;
+    wire ex_load_fast_eligible =
+        ex_is_load_o && (id_ex_rs1_fwd_sel_o == FWD_REG);
+
+    wire ex_load_branch_fast_hit =
+        ex_load_fast_eligible &&
+        ex_fast_load_cache_hit &&
+        !fast_store_load_fwd_valid_ex;
 
     // Conditions independent of the EX address adder form an early cone.
     // ex_load_hits_dram_o is kept separate so it enters only the HDU's final
@@ -361,7 +390,7 @@ module open_risc_v #(
     (* keep = "true" *) wire ex_load_late_bypass_pre =
         id_ex_is_load_valid &&
         !ctrl_kill_ex_o &&
-        !id_dec_is_branch_o &&
+        (!id_dec_is_branch_o || ex_load_branch_fast_hit) &&
         !id_dec_is_jalr_o &&
         !id_dec_is_load_o &&
         !id_dec_has_deep_alu;
@@ -376,7 +405,15 @@ module open_risc_v #(
         (ex_mem_wd_addr_o >= DRAM_ADDR_START) &&
         (ex_mem_wd_addr_o <  DRAM_ADDR_END);
 
-    wire store_load_fwd_valid_ex =
+    // Qualify a same-word store without reintroducing the generic load
+    // forwarding/address cone into the zero-stall branch decision.
+    wire fast_store_load_fwd_valid_ex =
+        ex_load_fast_eligible &&
+        (|ex_mem_wd_reg_o) &&
+        ex_mem_store_hits_dram &&
+        (ex_fast_load_addr[31:2] == ex_mem_wd_addr_o[31:2]);
+
+    assign store_load_fwd_valid_ex =
         ex_is_load_o &&
         ex_load_hits_dram_o &&
         (|ex_mem_wd_reg_o) &&
@@ -399,6 +436,7 @@ module open_risc_v #(
         .clk                         (clk),
         .rst                         (rst),
         .ex_load_addr_i              (ex_rd_mem_addr_o),
+        .ex_fast_load_addr_i         (ex_fast_load_addr),
         .mem1_is_load_i              (ex_mem_is_load_o),
         .mem1_load_hits_dram_i       (ex_mem_load_hits_dram_o),
         .mem1_inst_i                 (ex_mem_inst_o),
@@ -419,7 +457,10 @@ module open_risc_v #(
         .store_addr_i                (w_addr_i),
         .store_data_i                (w_data_i),
         .mem1_load_cache_hit_o       (mem1_load_cache_hit),
-        .mem1_rd_data_o              (mem1_rd_data_to_mem2)
+        .mem1_rd_data_o              (mem1_rd_data_to_mem2),
+        .ex_fast_load_cache_hit_o    (ex_fast_load_cache_hit),
+        .branch_fast_load_valid_o    (branch_fast_load_valid),
+        .branch_fast_load_data_o     (branch_fast_load_data)
     );
     // ==================================================================
     // Fetch / IF-ID / branch predictor accept control
@@ -466,10 +507,19 @@ module open_risc_v #(
         ~bp_replay_flush_d1_r &
         ~hdu_hold_flag_o;
 
+    // The redirect itself is persistent skid-packet state and feeds pc_reg's
+    // run-next-PC cone without consulting live hit/hold.  This commit pulse is
+    // only for epoch/flush bookkeeping after that packet is released.
+    wire bp_load_hold_redirect_commit =
+        if_id_load_branch_redirect_pending_o &&
+        !hdu_hold_flag_o && !ctrl_jump_en_o &&
+        !ex_timer_irq_trap_o;
+
     wire irom_rsp_kill =
         ctrl_jump_en_o |
         ex_timer_irq_trap_o |
-        bp_replay_redirect;
+        bp_replay_redirect |
+        bp_load_hold_redirect_commit;
 
     wire ifid_fetch_valid =
         effective_pred_valid &
@@ -488,8 +538,7 @@ module open_risc_v #(
         ifid_direct_fire &
         ~use_held_prediction &
         bp_pred_taken_o;
-    assign bp_pc_redirect_valid =
-        bp_fetch_redirect | bp_replay_redirect;
+    assign bp_pc_redirect_valid = bp_fetch_redirect | bp_replay_redirect;
     assign bp_pc_redirect_target =
         bp_replay_redirect ? if_id_pred_target_o : bp_pred_target_o;
 
@@ -499,7 +548,8 @@ module open_risc_v #(
     wire fetch_epoch_advance =
         ctrl_jump_en_o |
         ex_timer_irq_trap_o |
-        bp_pc_redirect_valid;
+        bp_pc_redirect_valid |
+        bp_load_hold_redirect_commit;
 
     // A request is accepted exactly once.  During a hold, BRAM may still see
     // the held address electrically, but the corresponding response packet is
@@ -510,7 +560,8 @@ module open_risc_v #(
         ~hdu_hold_flag_o &
         ~ctrl_jump_en_o &
         ~ex_timer_irq_trap_o &
-        ~bp_pc_redirect_valid;
+        ~bp_pc_redirect_valid &
+        ~bp_load_hold_redirect_commit;
 
     // Request-stage redirect: the branch request itself remains valid and its
     // metadata is carried in the response packet; only the next PC changes.
@@ -541,12 +592,22 @@ module open_risc_v #(
     assign pc_jump_en_o   = pc_redirect_valid;
     assign pc_jump_addr_o = pc_redirect_target;
 
+    // PC control has two orthogonal axes.  The HDU decides only whether the
+    // pipeline advances.  Redirect sources decide only PC.D.  An older
+    // redirect may commit despite a younger stall, hence this single OR.
+    wire pc_pipeline_enable = ~hdu_hold_flag_o | pc_redirect_valid;
+    wire [31:0] pc_run_target =
+        if_id_load_branch_redirect_pending_o ?
+            if_id_load_branch_redirect_target_o :
+            (pc_reg_pc_o + 32'd4);
+
     always @(posedge clk) begin
         if (rst == 1'b0) begin
             bp_fetch_valid_r         <= 1'b0;
             bp_fetch_pc_r            <= 32'h8000_0000;
             bp_pred_flush_d1_r       <= 1'b0;
             bp_replay_flush_d1_r     <= 1'b0;
+            bp_load_hold_flush_d1_r  <= 1'b0;
             bp_fetch_pred_valid_r    <= 1'b0;
             bp_early_pred_taken_r    <= 1'b0;
             bp_early_pred_target_r   <= 32'b0;
@@ -572,17 +633,20 @@ module open_risc_v #(
 
             // The late predictor redirects after the sequential request has
             // reached IROM.  Suppress that one-cycle ghost response.
-            bp_pred_flush_d1_r       <= bp_pc_redirect_valid;
+            bp_pred_flush_d1_r       <=
+                bp_pc_redirect_valid | bp_load_hold_redirect_commit;
 
             // Keep the existing one-cycle replay pipeline clear pulse.
             bp_replay_flush_d1_r     <= bp_replay_redirect;
+            bp_load_hold_flush_d1_r  <= bp_load_hold_redirect_commit;
         end
     end
 
     wire frontend_flush_ifid =
         ex_timer_irq_trap_o |
         ctrl_flush_ifid_o |
-        bp_replay_flush_d1_r;
+        bp_replay_flush_d1_r |
+        bp_load_hold_flush_d1_r;
 
     wire frontend_flush_idex =
         ex_timer_irq_trap_o |
@@ -656,9 +720,10 @@ module open_risc_v #(
     pc_reg pc_reg_inst (
         .clk         (clk),
         .rst         (rst),
-        .jump_en     (pc_jump_en_o),
-        .jump_addr_i (pc_jump_addr_o),
-        .hold_flag_i (hdu_hold_flag_o),
+        .pc_enable_i (pc_pipeline_enable),
+        .redirect_valid_i(pc_jump_en_o),
+        .redirect_target_i(pc_jump_addr_o),
+        .run_target_i(pc_run_target),
         .pc_o        (pc_reg_pc_o)
     );
 
@@ -675,20 +740,27 @@ module open_risc_v #(
         .pred_target_i      (effective_pred_target),
         .pred_ghr_i         (effective_pred_ghr),
         .pred_type_i        (effective_pred_type),
+        .redirect_already_issued_i(
+            use_held_prediction && effective_pred_taken),
         .hold_flag_i        (hdu_hold_flag_o),
+        .load_branch_hold_i (load_branch_hold_o),
         .flush_flag_i       (frontend_flush_ifid),
         .inst_addr_o        (if_id_inst_addr_o),
         .pred_taken_o       (if_id_pred_taken_o),
         .pred_target_o      (if_id_pred_target_o),
         .pred_ghr_o         (if_id_pred_ghr_o),
         .pred_type_o        (if_id_pred_type_o),
+        .redirect_already_issued_o(
+            if_id_redirect_already_issued_o),
         .inst_o             (if_id_inst_o),
         .valid_o            (if_id_valid_o),
         .load_valid_o       (if_id_load_valid_o),
         .load_pred_taken_o  (if_id_load_pred_taken_o),
         .load_pred_target_o (if_id_load_pred_target_o),
         .replaying_o        (if_id_replaying_o),
-        .replay_pending_o   (if_id_replay_pending_o)
+        .replay_pending_o   (if_id_replay_pending_o),
+        .load_branch_redirect_pending_o(if_id_load_branch_redirect_pending_o),
+        .load_branch_redirect_target_o(if_id_load_branch_redirect_target_o)
     );
 
     // ==================================================================
@@ -764,6 +836,7 @@ module open_risc_v #(
         .id_use_rs1_i          (id_use_rs1_o),
         .id_use_rs2_i          (id_use_rs2_o),
         .id_use_base_addr_i    (id_use_base_addr_o),
+        .id_is_branch_i        (id_dec_is_branch_o),
         .ex_rd_addr_i          (id_ex_rd_addr_o),
         .ex_rd_wen_i           (id_ex_reg_wen_valid),
         .ex_is_load_i          (id_ex_is_load_valid),
@@ -771,7 +844,10 @@ module open_risc_v #(
         .mem1_rd_addr_i        (ex_mem_pipe_rd_addr_o),
         .mem1_rd_wen_i         (ex_mem_rd_wen_o),
         .mem1_is_load_i        (ex_mem_is_load_o),
+        .mem1_load_hits_dram_i (ex_mem_load_hits_dram_o),
         .mem1_load_cache_hit_i (mem1_load_cache_hit),
+        .mem1_load_fast_eligible_i(ex_mem_load_fast_eligible_o),
+        .mem1_store_load_fwd_valid_i(ex_mem_store_load_fwd_valid_pipe_o),
         .mem2_rd_addr_i        (mem2_rd_addr_o),
         .mem2_rd_wen_i         (mem2_rd_wen_o),
         .mem2_is_slow_load_i   (mem2_is_slow_load_o),
@@ -917,6 +993,59 @@ module open_risc_v #(
         .fwd_jalr_base_addr_o     (fwd_jalr_base_addr_o)
     );
 
+    // A clean DCache hit is tagged for a dedicated comparator inside EX.
+    // The 32-bit cache data never rejoins the normal/MEM2 branch operand mux;
+    // selection happens after comparison on a one-bit condition result.
+    wire branch_fast_rs1_use =
+        id_ex_valid_o && id_ex_is_branch_o && branch_fast_load_valid &&
+        (id_ex_rs1_fwd_sel_o == FWD_LATE_LOAD);
+    wire branch_fast_rs2_use =
+        id_ex_valid_o && id_ex_is_branch_o && branch_fast_load_valid &&
+        (id_ex_rs2_fwd_sel_o == FWD_LATE_LOAD);
+
+    // Only a load-dependent conditional branch takes the registered recovery
+    // path.  Correct predictions generate no redirect and therefore pay no
+    // extra cycle; ordinary branches, JAL/JALR and traps remain combinational.
+    wire branch_mem2_rs1_use =
+        id_ex_valid_o && id_ex_is_branch_o &&
+        (id_ex_rs1_fwd_sel_o == FWD_MEM2_LOAD);
+    wire branch_mem2_rs2_use =
+        id_ex_valid_o && id_ex_is_branch_o &&
+        (id_ex_rs2_fwd_sel_o == FWD_MEM2_LOAD);
+    // Classify the path only from registered ID/EX metadata.  In particular,
+    // do not use branch_fast_load_valid here: that live cache tag result must
+    // terminate at the dedicated load comparator rather than reach PC logic.
+    wire load_dependent_branch_ex =
+        id_ex_valid_o && id_ex_is_branch_o &&
+        ((id_ex_rs1_fwd_sel_o == FWD_LATE_LOAD) ||
+         (id_ex_rs2_fwd_sel_o == FWD_LATE_LOAD) ||
+         (id_ex_rs1_fwd_sel_o == FWD_MEM2_LOAD) ||
+         (id_ex_rs2_fwd_sel_o == FWD_MEM2_LOAD));
+    wire load_branch_redirect_now =
+        ex_load_branch_jump_en_o && !ex_timer_irq_trap_o;
+
+    always @(posedge clk) begin
+        if (rst == 1'b0) begin
+            load_branch_redirect_valid_r  <= 1'b0;
+            load_branch_redirect_target_r <= 32'b0;
+        end else begin
+            load_branch_redirect_valid_r <= load_branch_redirect_now;
+            if (load_branch_redirect_now)
+                load_branch_redirect_target_r <=
+                    ex_load_branch_jump_addr_o;
+        end
+    end
+
+    // The registered redirect is older than the instruction currently in EX.
+    // Kill that younger instruction immediately while retaining ctrl's normal
+    // delayed flush for the synchronous-IROM ghost response.
+    wire ex_redirect_kill = load_branch_redirect_valid_r;
+    wire ex_jump_en_to_ctrl =
+        load_branch_redirect_valid_r || ex_jump_en_o;
+    wire [31:0] ex_jump_addr_to_ctrl =
+        load_branch_redirect_valid_r ? load_branch_redirect_target_r :
+        ex_jump_addr_o;
+
     // ==================================================================
     // HDU
     // ==================================================================
@@ -926,6 +1055,7 @@ module open_risc_v #(
         .id_rs2_addr_i        (id_rs2_addr_o),
         .id_use_rs1_i         (id_use_rs1_o),
         .id_use_rs2_i         (id_use_rs2_o),
+        .id_is_branch_i       (id_dec_is_branch_o),
         .ex_inst_i            (id_ex_inst_o),
         .ex_valid_i           (id_ex_valid_o),
         .ex_load_late_bypass_pre_i(ex_load_late_bypass_pre),
@@ -933,6 +1063,7 @@ module open_risc_v #(
         .id_ex_rs1_fwd_sel_i  (id_ex_rs1_fwd_sel_o),
         .id_ex_rs2_fwd_sel_i  (id_ex_rs2_fwd_sel_o),
         .mem1_inst_i          (ex_mem_inst_o),
+        .mem1_load_hits_dram_i(ex_mem_load_hits_dram_o),
         .mem1_load_cache_hit_i(mem1_load_cache_hit),
         .mem2_inst_i          (mem1_mem2_inst_o),
         .mem2_is_slow_load_i  (mem2_is_slow_load_o),
@@ -940,6 +1071,7 @@ module open_risc_v #(
         .ex_done_i            (ex_rv32m_done_o),
         .hold_flag_o          (hdu_hold_flag_o),
         .flush_flag_o         (hdu_flush_flag_o),
+        .load_branch_hold_o   (load_branch_hold_o),
         .late_load_miss_o     (late_load_miss_o)
     );
 
@@ -958,6 +1090,13 @@ module open_risc_v #(
         .fwd_cmp_op2_i       (fwd_cmp_op2_o),
         .fwd_br_op1_i        (fwd_br_op1_o),
         .fwd_br_op2_i        (fwd_br_op2_o),
+        .branch_fast_load_data_i(branch_fast_load_data),
+        .branch_fast_rs1_i   (branch_fast_rs1_use),
+        .branch_fast_rs2_i   (branch_fast_rs2_use),
+        .branch_mem2_load_data_i(mem2_rd_data_o),
+        .branch_mem2_rs1_i   (branch_mem2_rs1_use),
+        .branch_mem2_rs2_i   (branch_mem2_rs2_use),
+        .load_dependent_branch_i(load_dependent_branch_ex),
         .store_data_i        (fwd_store_data_o),
         .pred_taken_i        (id_ex_pred_taken_o),
         .pred_target_i       (id_ex_pred_target_o),
@@ -965,7 +1104,8 @@ module open_risc_v #(
         .pred_type_i         (id_ex_pred_type_o),
         .rd_addr_i           (id_ex_rd_addr_o),
         .rd_wen_i            (id_ex_reg_wen),
-        .kill_i              (ctrl_kill_ex_o | late_load_miss_o),
+        .kill_i              (ctrl_kill_ex_o | ex_redirect_kill |
+                              late_load_miss_o),
         .fwd_load_base_i     (fwd_load_base_addr_o),
         .fwd_store_base_i    (fwd_store_base_addr_o),
         .fwd_jalr_base_i     (fwd_jalr_base_addr_o),
@@ -998,6 +1138,8 @@ module open_risc_v #(
         .rd_data_o           (ex_rd_data_o),
         .jump_addr_o         (ex_jump_addr_o),
         .jump_en_o           (ex_jump_en_o),
+        .load_branch_jump_addr_o(ex_load_branch_jump_addr_o),
+        .load_branch_jump_en_o(ex_load_branch_jump_en_o),
         .mem_wd_reg_o        (ex_wd_reg_o),
         .mem_wd_addr_o       (ex_wd_addr_o),
         .mem_wd_data_o       (ex_wd_data_o),
@@ -1029,8 +1171,8 @@ module open_risc_v #(
     ctrl ctrl_inst (
         .clk          (clk),
         .rst          (rst),
-        .jump_addr_i  (ex_jump_addr_o),
-        .jump_en_i    (ex_jump_en_o),
+        .jump_addr_i  (ex_jump_addr_to_ctrl),
+        .jump_en_i    (ex_jump_en_to_ctrl),
         .jump_en_o    (ctrl_jump_en_o),
         .jump_addr_o  (ctrl_jump_addr_o),
         .kill_ex_o    (ctrl_kill_ex_o),
@@ -1054,6 +1196,7 @@ module open_risc_v #(
         .mem_rd_addr_i     (ex_rd_mem_addr_o),
         .is_load_i         (ex_is_load_o),
         .load_hits_dram_i  (ex_load_hits_dram_o),
+        .load_fast_eligible_i(ex_load_fast_eligible),
         .store_load_fwd_valid_i(store_load_fwd_valid_ex),
         .store_load_fwd_wstrb_i(store_load_fwd_wstrb_ex),
         .store_load_fwd_data_i (store_load_fwd_data_ex),
@@ -1071,6 +1214,7 @@ module open_risc_v #(
         .mem_rd_addr_o     (ex_mem_mem_rd_addr_o),
         .is_load_o         (ex_mem_is_load_o),
         .load_hits_dram_o  (ex_mem_load_hits_dram_o),
+        .load_fast_eligible_o(ex_mem_load_fast_eligible_o),
         .store_load_fwd_valid_o(ex_mem_store_load_fwd_valid_o),
         .store_load_fwd_valid_cache_o(ex_mem_store_load_fwd_valid_cache_o),
         .store_load_fwd_valid_pipe_o (ex_mem_store_load_fwd_valid_pipe_o),

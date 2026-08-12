@@ -8,6 +8,7 @@ module Hazard_detection_unit (
 
     input  wire        id_use_rs1_i,
     input  wire        id_use_rs2_i,
+    input  wire        id_is_branch_i,
     input wire ex_done_i,
     input  wire [31:0] ex_inst_i,
     input  wire        ex_valid_i,
@@ -18,6 +19,7 @@ module Hazard_detection_unit (
     input  wire [2:0]  id_ex_rs1_fwd_sel_i,
     input  wire [2:0]  id_ex_rs2_fwd_sel_i,
     input  wire [31:0] mem1_inst_i,
+    input  wire        mem1_load_hits_dram_i,
     input  wire        mem1_load_cache_hit_i,
     input  wire [31:0] mem2_inst_i,
 
@@ -27,6 +29,7 @@ module Hazard_detection_unit (
 
    output reg hold_flag_o,
    output reg flush_flag_o,
+   output wire load_branch_hold_o,
    output wire late_load_miss_o
 );
     localparam [2:0] FWD_LATE_LOAD = 3'd3;
@@ -112,10 +115,18 @@ module Hazard_detection_unit (
         (ex_opcode == `INST_TYPE_L) &&
         ex_dep_match;
 
+    wire mem1_dram_miss_branch_bypass =
+        id_is_branch_i &&
+        (mem1_opcode == `INST_TYPE_L) &&
+        mem1_dep_match &&
+        mem1_load_hits_dram_i &&
+        !mem1_load_cache_hit_i;
+
     wire mem1_load_dep =
         (mem1_opcode == `INST_TYPE_L) &&
         mem1_dep_match &&
-        !mem1_load_cache_hit_i;
+        !mem1_load_cache_hit_i &&
+        !mem1_dram_miss_branch_bypass;
 
 
     wire mem2_slow_load_dep =
@@ -159,6 +170,11 @@ module Hazard_detection_unit (
     wire dep_late_stall =
         dep_nohit &
         ~(ex_load_late_bypass_pre_i & ex_load_hits_dram_raw_i);
+
+    // Classify only the one-cycle ID admission stall behind an EX load.  The
+    // frontend registers this bit with a captured response packet, so the
+    // late replay decision never sees the live cache-hit/tag cone.
+    assign load_branch_hold_o = id_is_branch_i && dep_late_stall;
 
     always @(*) begin
         hold_flag_o = hold_early | dep_late_stall;

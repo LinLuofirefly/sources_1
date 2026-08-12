@@ -10,12 +10,10 @@
 #define HAS_PRINTF      0
 
 #define COMPILER_VERSION "GCC " __VERSION__
-#define COREMARK_STRINGIFY_INNER(value) #value
-#define COREMARK_STRINGIFY(value) COREMARK_STRINGIFY_INNER(value)
-#ifndef COREMARK_OPT_LEVEL
-#define COREMARK_OPT_LEVEL -O1
+#ifndef COREMARK_FLAGS_LABEL
+#define COREMARK_FLAGS_LABEL "-O1"
 #endif
-#define COMPILER_FLAGS   COREMARK_STRINGIFY(COREMARK_OPT_LEVEL) \
+#define COMPILER_FLAGS   COREMARK_FLAGS_LABEL \
                          " -march=rv32im_zicsr -mabi=ilp32"
 #define MEM_LOCATION     "STATIC"
 

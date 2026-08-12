@@ -16,8 +16,10 @@ module if_id (
     input  wire [31:0] pred_target_i,
     input  wire [`BP_GHR_WIDTH-1:0] pred_ghr_i,
     input  wire [1:0]  pred_type_i,
+    input  wire        redirect_already_issued_i,
 
     input  wire        hold_flag_i,
+    input  wire        load_branch_hold_i,
     input  wire        flush_flag_i,
 
     output reg  [31:0] inst_addr_o,
@@ -25,6 +27,7 @@ module if_id (
     output reg  [31:0] pred_target_o,
     output reg  [`BP_GHR_WIDTH-1:0] pred_ghr_o,
     output reg  [1:0]  pred_type_o,
+    output reg         redirect_already_issued_o,
     output reg  [31:0] inst_o,
     // State-valid for the instruction currently resident in IF/ID.  This is
     // deliberately separate from load_valid_o, which is only a load pulse.
@@ -37,7 +40,9 @@ module if_id (
     output reg  [31:0] load_pred_target_o,
 
     output wire        replaying_o,
-    output wire        replay_pending_o
+    output wire        replay_pending_o,
+    output wire        load_branch_redirect_pending_o,
+    output wire [31:0] load_branch_redirect_target_o
 );
 
     reg [31:0] hold_inst_reg;
@@ -46,13 +51,21 @@ module if_id (
     reg [31:0] hold_pred_target_reg;
     reg [`BP_GHR_WIDTH-1:0] hold_pred_ghr_reg;
     reg [1:0]  hold_pred_type_reg;
+    reg        hold_redirect_already_issued_reg;
 
     reg        is_holding_reg;
     reg        replaying_reg;
     reg        replay_pending_reg;
+    reg        hold_load_branch_reg;
 
     assign replaying_o      = replaying_reg;
     assign replay_pending_o = replay_pending_reg;
+    // This is packet state, not a release decision.  The live HDU/cache-hit
+    // result is deliberately absent; pc_reg applies hold in its final mux.
+    assign load_branch_redirect_pending_o =
+        is_holding_reg && hold_load_branch_reg && hold_pred_taken_reg &&
+        !hold_redirect_already_issued_reg;
+    assign load_branch_redirect_target_o = hold_pred_target_reg;
 
     always @(posedge clk) begin
         if (rst == 1'b0 || flush_flag_i == 1'b1) begin
@@ -62,6 +75,7 @@ module if_id (
             pred_target_o        <= 32'b0;
             pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
             pred_type_o          <= `BP_PRED_NONE;
+            redirect_already_issued_o <= 1'b0;
             valid_o              <= 1'b0;
 
             load_valid_o         <= 1'b0;
@@ -74,10 +88,12 @@ module if_id (
             hold_pred_target_reg <= 32'b0;
             hold_pred_ghr_reg    <= {`BP_GHR_WIDTH{1'b0}};
             hold_pred_type_reg   <= `BP_PRED_NONE;
+            hold_redirect_already_issued_reg <= 1'b0;
 
             is_holding_reg       <= 1'b0;
             replaying_reg        <= 1'b0;
             replay_pending_reg   <= 1'b0;
+            hold_load_branch_reg <= 1'b0;
 
         end else if (hold_flag_i == 1'b1) begin
             // hold 期间 IF/ID 输出保持不变，但本拍没有对外“装载新包”。
@@ -95,9 +111,12 @@ module if_id (
                 hold_pred_target_reg <= pred_target_i;
                 hold_pred_ghr_reg    <= pred_ghr_i;
                 hold_pred_type_reg   <= pred_type_i;
+                hold_redirect_already_issued_reg <=
+                    redirect_already_issued_i;
 
                 is_holding_reg       <= 1'b1;
                 replay_pending_reg   <= 1'b1;
+                hold_load_branch_reg <= load_branch_hold_i;
             end
 
         end else begin
@@ -109,6 +128,8 @@ module if_id (
                 pred_target_o        <= hold_pred_target_reg;
                 pred_ghr_o           <= hold_pred_ghr_reg;
                 pred_type_o          <= hold_pred_type_reg;
+                redirect_already_issued_o <=
+                    hold_redirect_already_issued_reg;
                 valid_o              <= 1'b1;
 
                 load_valid_o         <= 1'b1;
@@ -116,7 +137,10 @@ module if_id (
                 load_pred_target_o   <= hold_pred_taken_reg ? hold_pred_target_reg : 32'b0;
 
                 is_holding_reg       <= 1'b0;
-                replaying_reg        <= 1'b1;
+                // A load-interlock release is a packet resume, not a
+                // predictor replay.  Generic stalls retain the legacy replay
+                // pulse; load stalls never enter bp_replay_redirect/flush.
+                replaying_reg        <= !hold_load_branch_reg;
                 replay_pending_reg   <= 1'b0;
 
             end else begin
@@ -133,6 +157,7 @@ module if_id (
                 pred_target_o        <= pred_target_i;
                 pred_ghr_o           <= pred_ghr_i;
                 pred_type_o          <= pred_type_i;
+                redirect_already_issued_o <= redirect_already_issued_i;
                 valid_o              <= 1'b1;
 
                 load_valid_o         <= 1'b1;
@@ -146,6 +171,7 @@ module if_id (
                 pred_target_o        <= 32'b0;
                 pred_ghr_o           <= {`BP_GHR_WIDTH{1'b0}};
                 pred_type_o          <= `BP_PRED_NONE;
+                redirect_already_issued_o <= 1'b0;
                 valid_o              <= 1'b0;
 
                 load_valid_o         <= 1'b0;

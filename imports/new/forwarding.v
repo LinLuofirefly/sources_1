@@ -37,6 +37,7 @@ module forwarding (
     localparam [2:0] FWD_MEM1_MEM2 = 3'd2;
     localparam [2:0] FWD_LATE_LOAD = 3'd3;
     localparam [2:0] FWD_MEM_WB    = 3'd4;
+    localparam [2:0] FWD_MEM2_LOAD = 3'd5;
 
     reg         late_load_replay_r;
     reg  [31:0] replay_rs1_data_r;
@@ -63,6 +64,25 @@ module forwarding (
                 FWD_LATE_LOAD: select_fwd_data = late_load_data_i;
                 FWD_MEM_WB:    select_fwd_data = mem_wb_data_i;
                 default:       select_fwd_data = reg_data_i;
+            endcase
+        end
+    endfunction
+
+    // Keep the miss-return input out of the normal branch cone.  The top level
+    // sends MEM2 load data directly to EX's registered-recovery comparator;
+    // encoding 5 therefore falls through to the resident register operand.
+    function [31:0] select_branch_data;
+        input [2:0]  sel_i;
+        input [31:0] reg_data_i;
+        input [31:0] ex_mem_data_i;
+        input [31:0] mem1_mem2_data_i;
+        input [31:0] mem_wb_data_i;
+        begin
+            case (sel_i)
+                FWD_EX_MEM:    select_branch_data = ex_mem_data_i;
+                FWD_MEM1_MEM2: select_branch_data = mem1_mem2_data_i;
+                FWD_MEM_WB:    select_branch_data = mem_wb_data_i;
+                default:       select_branch_data = reg_data_i;
             endcase
         end
     endfunction
@@ -152,17 +172,19 @@ module forwarding (
             ex_mem_rd_data_i, mem1_mem2_rd_data_i,
             late_load_data, mem_wb_rd_data_i);
 
-    // Branch/JALR are excluded from FWD_LATE_LOAD before ID/EX, so they can
-    // never be the held consumer of a late-load miss.  Do not leave the
-    // impossible replay-data mux on either redirect path.
+    // The normal branch comparator excludes both FWD_LATE_LOAD and
+    // FWD_MEM2_LOAD.  Load-dependent branches have a separate comparator and
+    // redirect output in EX, so neither DCache nor MEM2 load data can leak
+    // back into the same-cycle normal redirect cone.
     assign fwd_jalr_base_addr_o =
         select_nonlate_data(
             id_ex_rs1_fwd_sel_i, id_ex_ls_base_addr_i,
             ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
-    assign fwd_br_op1_o =
-        select_nonlate_data(
+    assign fwd_br_op1_o = replay_rs1_forward ? replay_rs1_data_r :
+        select_branch_data(
             id_ex_rs1_fwd_sel_i, id_ex_op1_i,
-            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+            mem_wb_rd_data_i);
 
     assign fwd_op2_o            = replay_rs2_forward ? replay_rs2_data_r :
                                   select_fwd_data(
@@ -179,9 +201,10 @@ module forwarding (
                                       id_ex_rs2_fwd_sel_i, id_ex_store_data_i,
                                       ex_mem_rd_data_i, mem1_mem2_rd_data_i,
                                       late_load_data, mem_wb_rd_data_i);
-    assign fwd_br_op2_o =
-        select_nonlate_data(
+    assign fwd_br_op2_o = replay_rs2_forward ? replay_rs2_data_r :
+        select_branch_data(
             id_ex_rs2_fwd_sel_i, id_ex_cmp_op2_i,
-            ex_mem_rd_data_i, mem1_mem2_rd_data_i, mem_wb_rd_data_i);
+            ex_mem_rd_data_i, mem1_mem2_rd_data_i,
+            mem_wb_rd_data_i);
 
 endmodule

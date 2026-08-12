@@ -10,8 +10,17 @@ From WSL or Linux:
 
 ```sh
 make -B BUILD_DIR=build/fpga TIMER_PERIOD_CYCLES=2100000 \
-  COREMARK_ITERATIONS=10000 OPT_FLAGS=-O1
+  COREMARK_ITERATIONS=10000 \
+  RTTHREAD_OPT_FLAGS=-O2 COREMARK_OPT_FLAGS=-O3
 ```
+
+`RTTHREAD_OPT_FLAGS` applies to the RT-Thread kernel, BSP, port and shell.
+`COREMARK_OPT_FLAGS` applies only to the timed CoreMark workload and its four
+kernels. The non-measured `core_portme.c` platform/formatter layer follows
+`RTTHREAD_OPT_FLAGS` by default and can be overridden with
+`PORTME_OPT_FLAGS`.
+For compatibility, setting the former `OPT_FLAGS` variable still applies one
+optimization level to both groups.
 
 The generated Vivado initialization files are:
 

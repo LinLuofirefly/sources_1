@@ -1,9 +1,10 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
+/* Simulation-only linker script for the instrumented training executable. */
 MEMORY
 {
-    IROM (rx)  : ORIGIN = 0x80000000, LENGTH = 32K
+    IROM (rx)  : ORIGIN = 0x80000000, LENGTH = 128K
     DRAM (rwx) : ORIGIN = 0x80100000, LENGTH = 256K
 }
 
@@ -60,5 +61,5 @@ SECTIONS
     }
 }
 
-ASSERT(SIZEOF(.text) <= LENGTH(IROM), "RT-Thread Nano IROM overflow")
-ASSERT(__heap_start < __stack_top, "RT-Thread Nano DRAM overflow")
+ASSERT(SIZEOF(.text) <= LENGTH(IROM), "CoreMark PGO training IROM overflow")
+ASSERT(__heap_start < __stack_top, "CoreMark PGO training DRAM overflow")

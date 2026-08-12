@@ -13,6 +13,7 @@ module ex_mem1 (
     input  wire [31:0] mem_wd_data_i,
     input  wire        is_load_i,
     input  wire        load_hits_dram_i,
+    input  wire        load_fast_eligible_i,
     input  wire        store_load_fwd_valid_i,
     input  wire [3:0]  store_load_fwd_wstrb_i,
     input  wire [31:0] store_load_fwd_data_i,
@@ -31,6 +32,7 @@ module ex_mem1 (
     output reg  [31:0] mem_wd_data_o,
     output reg         is_load_o,
     output reg         load_hits_dram_o,
+    output reg         load_fast_eligible_o,
     output reg         store_load_fwd_valid_o,
     output reg         store_load_fwd_valid_cache_o,
     output reg         store_load_fwd_valid_pipe_o,
@@ -55,6 +57,7 @@ module ex_mem1 (
             mem_wd_data_o          <= 32'b0;
             is_load_o              <= 1'b0;
             load_hits_dram_o       <= 1'b0;
+            load_fast_eligible_o   <= 1'b0;
             store_load_fwd_valid_o <= 1'b0;
             store_load_fwd_valid_cache_o <= 1'b0;
             store_load_fwd_valid_pipe_o  <= 1'b0;
@@ -76,6 +79,7 @@ module ex_mem1 (
             mem_wd_data_o          <= mem_wd_data_i;
             is_load_o              <= is_load_i;
             load_hits_dram_o       <= load_hits_dram_i;
+            load_fast_eligible_o   <= load_fast_eligible_i;
             store_load_fwd_valid_o <= store_load_fwd_valid_i;
             // 同一流水级内复制 store-load forwarding valid。
             // cache 副本只驱动 DCache MEM1 合并路径，pipe 副本只送往

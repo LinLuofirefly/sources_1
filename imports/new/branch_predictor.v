@@ -74,10 +74,19 @@ module branch_predictor #(
    (* ram_style = "distributed" *) reg       btb_valid [0:BTB_SIZE-1];
    (* ram_style = "distributed" *) reg [BTB_TAG_WIDTH-1:0] btb_tag [0:BTB_SIZE-1];
    (* ram_style = "distributed" *) reg [31:0] btb_target [0:BTB_SIZE-1];
+   // BTFNT 回退用：这条分支是否向后跳。分支方向是静态属性，更新时算好存 1 bit，
+   // 预测时直接读，避免在取指关键路径上放一个 32 位大小比较器。
+   (* ram_style = "distributed" *) reg        btb_is_backward [0:BTB_SIZE-1];
    reg [BHT_ADDR_WIDTH-1:0] ghr_r;
    reg [31:0] ras [0:RAS_DEPTH-1];
    reg [RAS_PTR_WIDTH-1:0] ras_sp_r;
    reg [RAS_PTR_WIDTH:0] ras_count_r;
+   // ras_top_idx_r / ras_nonempty_r 是 ras_sp_r / ras_count_r 的并行冗余副本，
+   // 恒等于 (ras_sp_r==0 ? RAS_LAST_PTR : ras_sp_r-1) 和 (ras_count_r!=0)。
+   // 单独维护是因为原来的组合版本直接当 ras[] 的读地址和预测使能用，
+   // 相当于在取指关键路径上放了一个比较+减法。寄存化后读地址是纯寄存器输出。
+   reg [RAS_PTR_WIDTH-1:0] ras_top_idx_r;
+   reg                     ras_nonempty_r;
    // Last-target component: learns stable function-pointer calls after their
    // first execution, so the second execution can already be predicted.
    (* ram_style = "distributed" *) reg itc_valid [0:ITC_SIZE-1];
@@ -102,9 +111,15 @@ module branch_predictor #(
    (* ram_style = "distributed" *) reg [1:0]
        itc_chooser [0:ITC_CHOOSER_SIZE-1];
 
-   // Two-stage indirect-predictor training pipeline.  Stage N reads and
-   // compares the history/chooser entries, then captures a complete write
-   // packet.  Stage N+1 only writes that packet into the two tables.
+   // Three-stage indirect-predictor training pipeline.  Stage N captures the
+   // architectural JALR update packet.  Stage N+1 reads/compares the
+   // history/chooser entries and prepares a complete write packet.  Stage
+   // N+2 only writes that packet into the two tables.
+   reg jalr_read_pending_r;
+   reg [31:0] jalr_read_pc_r;
+   reg [31:0] jalr_read_target_r;
+   reg [BHT_ADDR_WIDTH-1:0] jalr_read_ghr_r;
+   reg jalr_read_is_call_r;
    reg jalr_update_pending_r;
    reg [HIST_ITC_ADDR_WIDTH-1:0] jalr_hist_itc_idx_r;
    reg [HIST_ITC_TAG_WIDTH-1:0]  jalr_hist_itc_tag_r;
@@ -183,20 +198,20 @@ module branch_predictor #(
     wire [ITC_ADDR_WIDTH-1:0] req_itc_idx =
         req_pc_i[ITC_ADDR_WIDTH+1:2];
     wire [ITC_ADDR_WIDTH-1:0] update_itc_idx =
-        jalr_update_pc_i[ITC_ADDR_WIDTH+1:2];
+        jalr_read_pc_r[ITC_ADDR_WIDTH+1:2];
     wire [HIST_ITC_ADDR_WIDTH-1:0] pred_hist_itc_idx =
         indirect_pc_hash(if_pc_i[31:2]) ^ fold_indirect_ghr(if_ghr_i);
     wire [HIST_ITC_ADDR_WIDTH-1:0] req_hist_itc_idx =
         indirect_pc_hash(req_pc_i[31:2]) ^ fold_indirect_ghr(ghr_r);
     wire [HIST_ITC_ADDR_WIDTH-1:0] update_hist_itc_idx =
-        indirect_pc_hash(jalr_update_pc_i[31:2]) ^
-        fold_indirect_ghr(jalr_update_ghr_i);
+        indirect_pc_hash(jalr_read_pc_r[31:2]) ^
+        fold_indirect_ghr(jalr_read_ghr_r);
     wire [ITC_CHOOSER_ADDR_WIDTH-1:0] pred_itc_chooser_idx =
         if_pc_i[ITC_CHOOSER_ADDR_WIDTH+1:2];
     wire [ITC_CHOOSER_ADDR_WIDTH-1:0] req_itc_chooser_idx =
         req_pc_i[ITC_CHOOSER_ADDR_WIDTH+1:2];
     wire [ITC_CHOOSER_ADDR_WIDTH-1:0] update_itc_chooser_idx =
-        jalr_update_pc_i[ITC_CHOOSER_ADDR_WIDTH+1:2];
+        jalr_read_pc_r[ITC_CHOOSER_ADDR_WIDTH+1:2];
 
    wire [31:0] b_imm =
         {{20{if_inst_i[31]}}, if_inst_i[7], if_inst_i[30:25], if_inst_i[11:8], 1'b0};
@@ -208,9 +223,31 @@ module branch_predictor #(
     wire rd_is_link  = (rd == 5'b00001)||(rd == 5'b00101);
     wire rs1_is_link = (rs1 == 5'b00001)||(rs1 == 5'b00101);
 
-    wire ras_nonempty = (ras_count_r != {RAS_PTR_WIDTH+1{1'b0}});
-    wire [RAS_PTR_WIDTH-1:0] ras_top_idx =
-        (ras_sp_r == {RAS_PTR_WIDTH{1'b0}}) ? RAS_LAST_PTR : (ras_sp_r - 1'b1);
+    // 预测侧一律用寄存副本；组合版 ras_top_idx 只留给下面的更新块做写地址，
+    // 那条不在取指关键路径上。
+    wire ras_nonempty = ras_nonempty_r;
+    wire [RAS_PTR_WIDTH-1:0] ras_top_idx = ras_top_idx_r;
+    // 下一个栈顶（pop 之后的），只在更新块里用
+    wire [RAS_PTR_WIDTH-1:0] ras_top_idx_after_pop =
+        (ras_top_idx_r == {RAS_PTR_WIDTH{1'b0}}) ? RAS_LAST_PTR
+                                                 : (ras_top_idx_r - 1'b1);
+
+`ifndef SYNTHESIS
+    // 冗余副本必须恒等于它们所镜像的表达式。这是本改动唯一的风险点，
+    // 任何一处 ras_sp_r / ras_count_r 的更新漏了同步副本都会在这里炸出来。
+    always @(posedge clk) begin
+        if (rst == 1'b1) begin
+            if (ras_top_idx_r !==
+                ((ras_sp_r == {RAS_PTR_WIDTH{1'b0}}) ? RAS_LAST_PTR
+                                                     : (ras_sp_r - 1'b1)))
+                $error("RAS ras_top_idx_r desync: sp=%0d top_r=%0d",
+                       ras_sp_r, ras_top_idx_r);
+            if (ras_nonempty_r !== (ras_count_r != {RAS_PTR_WIDTH+1{1'b0}}))
+                $error("RAS ras_nonempty_r desync: count=%0d nonempty_r=%b",
+                       ras_count_r, ras_nonempty_r);
+        end
+    end
+`endif
 
     wire is_jalr_hint = (opcode == `INST_JALR) && (funct3 == 3'b000);
     wire ras_pred_pop = is_jalr_hint && rs1_is_link && (!rd_is_link || (rd != rs1));
@@ -261,9 +298,14 @@ module branch_predictor #(
                                    itc_target[req_itc_idx];
 
     wire branch_bht_pred_taken_w = bht_valid[pred_idx] ? bht[pred_idx][1] : btfnt_taken;
+    // btb_is_backward 是更新时算好的 (target < pc)，与原来的
+    // (btb_target[req_btb_idx] < req_pc_i) 逐位等价：这个值只在
+    // req_btb_hit_o=1 时才被 req_pred_taken_o 采用，而命中意味着 tag 匹配，
+    // 此时 req_pc_i 必然等于当初更新时的 {update_pc_word_i,2'b00}。
+    // 取指关键路径上因此少了一条 32 位进位链。
     wire req_branch_bht_pred_taken_w =
         bht_valid[req_pred_idx] ? bht[req_pred_idx][1] :
-        (btb_target[req_btb_idx] < req_pc_i);
+        btb_is_backward[req_btb_idx];
     wire [31:0] branch_pred_target_w = if_pc_i + b_imm;
     wire [31:0] jal_pred_target_w    = if_pc_i + j_imm;
     wire [31:0] jalr_pred_target_w   = ras[ras_top_idx];
@@ -274,17 +316,17 @@ module branch_predictor #(
     // Chooser training observes the two candidates before this update edge.
     // Architectural recovery still uses the prediction packet carried to EX;
     // these wires affect chooser quality only, never correctness.  A pending
-    // Stage-N+1 write is forwarded into the following Stage-N read so that
+    // Stage-N+2 write is forwarded into the concurrent Stage-N+1 read so that
     // back-to-back JALR updates to the same index retain the original
     // one-update-per-cycle training semantics.
     wire update_itc_hit =
         itc_valid[update_itc_idx] &&
         (itc_tag[update_itc_idx] ==
-         jalr_update_pc_i[31:ITC_ADDR_WIDTH+2]);
+         jalr_read_pc_r[31:ITC_ADDR_WIDTH+2]);
     wire [HIST_ITC_TAG_WIDTH-1:0] update_hist_itc_tag =
-        indirect_pc_tag(jalr_update_pc_i[31:2]);
+        indirect_pc_tag(jalr_read_pc_r[31:2]);
     wire [ITC_CHOOSER_TAG_WIDTH-1:0] update_itc_chooser_tag =
-        jalr_update_pc_i[31:ITC_CHOOSER_ADDR_WIDTH+2];
+        jalr_read_pc_r[31:ITC_CHOOSER_ADDR_WIDTH+2];
     wire update_hist_pending_match =
         jalr_update_pending_r &&
         (jalr_hist_itc_idx_r == update_hist_itc_idx);
@@ -306,16 +348,16 @@ module branch_predictor #(
         jalr_itc_chooser_state_r : itc_chooser[update_itc_chooser_idx];
     wire update_itc_correct =
         update_itc_hit &&
-        (itc_target[update_itc_idx] == jalr_update_target_i);
+        (itc_target[update_itc_idx] == jalr_read_target_r);
     wire update_hist_itc_correct =
         update_hist_itc_hit &&
-        (update_hist_itc_target == jalr_update_target_i);
+        (update_hist_itc_target == jalr_read_target_r);
     wire update_itc_prefers_last =
         update_itc_correct && !update_hist_itc_correct;
     wire update_itc_prefers_history =
         update_hist_itc_correct && !update_itc_correct;
     wire [1:0] update_itc_chooser_next = !update_itc_chooser_hit ?
-        (jalr_update_is_call_i ? 2'b01 : 2'b10) :
+        (jalr_read_is_call_r ? 2'b01 : 2'b10) :
         (update_itc_prefers_last &&
          (update_itc_chooser_state != 2'b00)) ?
             (update_itc_chooser_state - 1'b1) :
@@ -354,6 +396,7 @@ module branch_predictor #(
             btb_valid[j] = 1'b0;
             btb_tag[j] = {BTB_TAG_WIDTH{1'b0}};
             btb_target[j] = 32'b0;
+            btb_is_backward[j] = 1'b0;
         end
         for (k = 0; k < ITC_SIZE; k = k + 1) begin
             itc_valid[k] = 1'b0;
@@ -377,12 +420,18 @@ module branch_predictor #(
             ghr_r       <= {BHT_ADDR_WIDTH{1'b0}};
             ras_sp_r    <= {RAS_PTR_WIDTH{1'b0}};
             ras_count_r <= {RAS_PTR_WIDTH+1{1'b0}};
+            ras_top_idx_r  <= RAS_LAST_PTR;   // dec(0)
+            ras_nonempty_r <= 1'b0;
+            jalr_read_pending_r <= 1'b0;
             jalr_update_pending_r <= 1'b0;
         end else begin
             if (update_en_i) begin
                 btb_valid[update_btb_idx] <= 1'b1;
                 btb_tag[update_btb_idx] <= update_pc_word_i[29:BTB_ADDR_WIDTH];
                 btb_target[update_btb_idx] <= update_target_i;
+                // 静态属性，在这里算一次。update_pc = {update_pc_word_i, 2'b00}。
+                btb_is_backward[update_btb_idx] <=
+                    (update_target_i < {update_pc_word_i, 2'b00});
                 bht_valid[update_idx] <= 1'b1;
 
                 case (bht[update_idx])
@@ -395,7 +444,7 @@ module branch_predictor #(
                 ghr_r <= {ghr_r[BHT_ADDR_WIDTH-2:0], actual_taken_i};
             end
 
-            // Stage N+1: only write the packet prepared on the previous edge.
+            // Stage N+2: only write the packet prepared on the previous edge.
             if (jalr_update_pending_r) begin
                 hist_itc_valid[jalr_hist_itc_idx_r] <= 1'b1;
                 hist_itc_tag[jalr_hist_itc_idx_r] <= jalr_hist_itc_tag_r;
@@ -409,28 +458,43 @@ module branch_predictor #(
                     jalr_itc_chooser_state_r;
             end
 
-            // Stage N: keep the simple last-target table at its original
-            // latency, but register all history/chooser write information.
-            if (jalr_update_en_i) begin
+            // Stage N+1: read/compare using the registered update packet.
+            // The simple last-target component is updated here, while the
+            // history and chooser components capture a write-only packet.
+            if (jalr_read_pending_r) begin
                 itc_valid[update_itc_idx] <= 1'b1;
                 itc_tag[update_itc_idx] <=
-                    jalr_update_pc_i[31:ITC_ADDR_WIDTH+2];
-                itc_target[update_itc_idx] <= jalr_update_target_i;
+                    jalr_read_pc_r[31:ITC_ADDR_WIDTH+2];
+                itc_target[update_itc_idx] <= jalr_read_target_r;
 
                 jalr_hist_itc_idx_r <= update_hist_itc_idx;
                 jalr_hist_itc_tag_r <= update_hist_itc_tag;
-                jalr_hist_itc_target_r <= jalr_update_target_i;
+                jalr_hist_itc_target_r <= jalr_read_target_r;
                 jalr_itc_chooser_idx_r <= update_itc_chooser_idx;
                 jalr_itc_chooser_tag_r <= update_itc_chooser_tag;
                 jalr_itc_chooser_state_r <= update_itc_chooser_next;
             end
-            jalr_update_pending_r <= jalr_update_en_i;
+            jalr_update_pending_r <= jalr_read_pending_r;
+
+            // Stage N: decouple EX from every predictor-table read by
+            // capturing the complete architectural JALR update packet.
+            if (jalr_update_en_i) begin
+                jalr_read_pc_r <= jalr_update_pc_i;
+                jalr_read_target_r <= jalr_update_target_i;
+                jalr_read_ghr_r <= jalr_update_ghr_i;
+                jalr_read_is_call_r <= jalr_update_is_call_i;
+            end
+            jalr_read_pending_r <= jalr_update_en_i;
 
             case ({ras_push_en_i, ras_pop_en_i})
                 2'b01: begin
                     if (ras_nonempty) begin
                         ras_sp_r    <= ras_top_idx;
                         ras_count_r <= ras_count_r - 1'b1;
+                        // 副本随之更新：新 sp = ras_top_idx，新 top = dec(ras_top_idx)
+                        ras_top_idx_r  <= ras_top_idx_after_pop;
+                        ras_nonempty_r <=
+                            (ras_count_r != {{RAS_PTR_WIDTH{1'b0}}, 1'b1});
                     end
                 end
                 2'b10: begin
@@ -439,16 +503,22 @@ module branch_predictor #(
                     if (ras_count_r != RAS_DEPTH_COUNT) begin
                         ras_count_r <= ras_count_r + 1'b1;
                     end
+                    // dec(sp+1) == sp 恒成立（RAS_DEPTH = 2^RAS_PTR_WIDTH）
+                    ras_top_idx_r  <= ras_sp_r;
+                    ras_nonempty_r <= 1'b1;
                 end
                 2'b11: begin
                     if (ras_nonempty) begin
                         // Pop followed by push replaces the current top while
                         // preserving stack depth and pointer.
                         ras[ras_top_idx] <= ras_push_addr_i;
+                        // sp/count 不变，副本也不变
                     end else begin
                         ras[ras_sp_r] <= ras_push_addr_i;
                         ras_sp_r <= ras_sp_r + 1'b1;
                         ras_count_r <= ras_count_r + 1'b1;
+                        ras_top_idx_r  <= ras_sp_r;
+                        ras_nonempty_r <= 1'b1;
                     end
                 end
                 default: begin

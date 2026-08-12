@@ -13,7 +13,10 @@ module dram_cache #(
     input  wire        clk,
     input  wire        rst,
 
+    // Normal architectural read address; it may include general forwarding.
     input  wire [31:0] ex_load_addr_i,
+    // Dedicated early-probe address formed only from raw base + immediate.
+    input  wire [31:0] ex_fast_load_addr_i,
 
     input  wire        mem1_is_load_i,
     input  wire        mem1_load_hits_dram_i,
@@ -38,7 +41,10 @@ module dram_cache #(
     input  wire [31:0] store_data_i,
 
     output wire        mem1_load_cache_hit_o,
-    output wire [31:0] mem1_rd_data_o
+    output wire [31:0] mem1_rd_data_o,
+    output wire        ex_fast_load_cache_hit_o,
+    output wire        branch_fast_load_valid_o,
+    output wire [31:0] branch_fast_load_data_o
 );
     localparam integer LINES = (1 << INDEX_BITS);
     localparam integer TAG_BITS = 32 - INDEX_BITS - 2;
@@ -101,6 +107,8 @@ module dram_cache #(
     endfunction
 
     wire [INDEX_BITS-1:0] read_idx = ex_load_addr_i[INDEX_BITS+1:2];
+    wire [INDEX_BITS-1:0] fast_read_idx =
+        ex_fast_load_addr_i[INDEX_BITS+1:2];
 
     wire [INDEX_BITS-1:0] store_idx = store_addr_i[INDEX_BITS+1:2];
     wire [TAG_BITS-1:0]   store_tag = store_addr_i[31:INDEX_BITS+2];
@@ -225,12 +233,29 @@ module dram_cache #(
         read_valid_r &&
         (read_tag_r == mem1_load_addr_i[31:INDEX_BITS+2]);
 
+    // Kept behind a simulation/build-time legacy switch in the top level for
+    // Early tag probe used only by the load-to-branch admission logic.
+    assign ex_fast_load_cache_hit_o =
+        (ex_fast_load_addr_i >= DRAM_ADDR_START) &&
+        (ex_fast_load_addr_i <  DRAM_ADDR_END) &&
+        valid_array[fast_read_idx] &&
+        (tag_array[fast_read_idx] ==
+         ex_fast_load_addr_i[31:INDEX_BITS+2]);
+
     wire [3:0] mem1_fwd_wstrb =
         mem1_store_load_fwd_valid_i ? mem1_store_load_fwd_wstrb_i : 4'b0000;
     wire [31:0] mem1_cache_word =
         merge_store_word(read_data_r, mem1_store_load_fwd_data_i, mem1_fwd_wstrb);
     wire [31:0] mem1_cache_load_data =
         align_load_word(mem1_inst_i, mem1_load_addr_i, mem1_cache_word);
+
+    // Only a clean resident-line hit uses the dedicated branch comparator.
+    // A hit that needs store-to-load byte merging uses the completed MEM2
+    // result, keeping the merge mux out of the clean-hit fast path.
+    assign branch_fast_load_valid_o =
+        mem1_load_cache_hit_o && !mem1_store_load_fwd_valid_i;
+    assign branch_fast_load_data_o =
+        align_load_word(mem1_inst_i, mem1_load_addr_i, read_data_r);
 
     // late-load 首次执行无条件使用当前 DCache data array 的读出数据。
     // cache miss 时该数据可能无效，但消费者会被 late_load_miss kill，

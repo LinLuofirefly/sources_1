@@ -260,4 +260,8 @@ void portable_init(core_portable *portable, int *argc, char *argv[])
 void portable_fini(core_portable *portable)
 {
     portable->portable_id = 0u;
+#ifdef COREMARK_PGO_CAPTURE
+    extern void coremark_pgo_dump(void);
+    coremark_pgo_dump();
+#endif
 }
