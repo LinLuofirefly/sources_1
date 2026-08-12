@@ -3,6 +3,7 @@
 #include <rtthread.h>
 
 #include "board.h"
+#include "drv_hcsr04.h"
 
 #define COREMARK_LED_RUNNING 0x434d0001u
 #define SHELL_LINE_SIZE       32u
@@ -24,6 +25,7 @@ static void print_help(void)
 {
     rt_kprintf("RT-Thread shell commands:\n");
     rt_kprintf("coremark         - Run CoreMark and print CRC results.\n");
+    rt_kprintf("distance         - Measure once with the HC-SR04 sensor.\n");
     rt_kprintf("help             - RT-Thread shell help.\n");
 }
 
@@ -43,6 +45,24 @@ static void run_coremark(void)
 
     BSP_MMIO32(BSP_LED_ADDR) = 0u;
     rt_kprintf("[coremark] run complete; LED off\n");
+}
+
+static void run_distance(void)
+{
+    uint32_t echo_us;
+    uint32_t distance_mm;
+    rt_err_t result;
+
+    rt_kprintf("[distance] HC-SR04 measurement start\n");
+    result = bsp_hcsr04_measure(&echo_us, &distance_mm);
+    if (result != RT_EOK)
+    {
+        rt_kprintf("[distance] timeout or no echo\n");
+        return;
+    }
+
+    rt_kprintf("[distance] echo time: %u us\n", echo_us);
+    rt_kprintf("[distance] distance: %u mm\n", distance_mm);
 }
 
 static unsigned int read_command(char *line, unsigned int capacity)
@@ -90,7 +110,7 @@ int main(void)
     char command[SHELL_LINE_SIZE];
 
     rt_kprintf("[app] RT-Thread Nano ready\n");
-    rt_kprintf("[app] CoreMark hardware-counter shell ready\n");
+    rt_kprintf("[app] CoreMark and HC-SR04 shell ready\n");
 
     for (;;)
     {
@@ -107,6 +127,10 @@ int main(void)
         else if (string_equal(command, "coremark"))
         {
             run_coremark();
+        }
+        else if (string_equal(command, "distance"))
+        {
+            run_distance();
         }
         else
         {

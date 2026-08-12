@@ -16,12 +16,12 @@ COREMARK_ROOT := ../third_party/coremark
 BUILD_DIR ?= build
 MEM_DIR   := $(BUILD_DIR)/mem
 ELF       := $(BUILD_DIR)/rtthread_coremark.elf
-IROM_WORDS ?= 8192
+IROM_WORDS ?= 16384
 LINKER_SCRIPT ?= $(BSP_ROOT)/linker.ld
 
-# 210 MHz CPU clock / 100 Hz RT-Thread scheduling tick.  CoreMark elapsed time
+# 200 MHz CPU clock / 100 Hz RT-Thread scheduling tick.  CoreMark elapsed time
 # itself comes from the independent 1 kHz hardware counter in perip_bridge.
-TIMER_PERIOD_CYCLES ?= 2100000
+TIMER_PERIOD_CYCLES ?= 2000000
 COREMARK_ITERATIONS ?= 10000
 COREMARK_ALLOW_SHORT_RUN ?= 0
 # Keep the RT-Thread/BSP control path conservative while allowing the
@@ -39,6 +39,7 @@ PORTME_OPT_FLAGS     ?= $(RTTHREAD_OPT_FLAGS)
 # RTTHREAD_FLAGS so RT-Thread/BSP objects remain independently optimized.
 LINK_OPT_FLAGS       ?=
 PGO_CAPTURE          ?= 0
+PGO_PROFILE_DIR      ?=
 
 ifeq ($(PGO_CAPTURE),1)
 PGO_CAPTURE_FLAGS := -DCOREMARK_PGO_CAPTURE=1
@@ -71,6 +72,7 @@ COREMARK_C_NAMES := core_list_join core_matrix core_state core_util
 COREMARK_OBJECTS := $(addprefix $(BUILD_DIR)/,$(addsuffix .o,$(COREMARK_C_NAMES)))
 OBJECTS := $(BUILD_DIR)/startup.o $(BUILD_DIR)/trap.o \
 	$(BUILD_DIR)/board.o $(BUILD_DIR)/drv_timer.o $(BUILD_DIR)/drv_uart.o \
+	$(BUILD_DIR)/drv_hcsr04.o \
 	$(BUILD_DIR)/app_main.o $(BUILD_DIR)/core_portme.o \
 	$(BUILD_DIR)/core_main.o $(COREMARK_OBJECTS) \
 	$(BUILD_DIR)/cpuport.o $(BUILD_DIR)/context_gcc.o $(RTT_OBJECTS) \
@@ -101,7 +103,10 @@ $(BUILD_DIR)/drv_timer.o: $(BSP_ROOT)/bsp/drv_timer.c $(BSP_ROOT)/bsp/board.h rt
 $(BUILD_DIR)/drv_uart.o: $(BSP_ROOT)/bsp/drv_uart.c $(BSP_ROOT)/bsp/board.h rtconfig.h | $(BUILD_DIR)
 	$(CC) $(RTTHREAD_FLAGS) -std=c11 -c $< -o $@
 
-$(BUILD_DIR)/app_main.o: applications/main.c $(BSP_ROOT)/bsp/board.h rtconfig.h | $(BUILD_DIR)
+$(BUILD_DIR)/drv_hcsr04.o: $(BSP_ROOT)/bsp/drv_hcsr04.c $(BSP_ROOT)/bsp/drv_hcsr04.h $(BSP_ROOT)/bsp/board.h rtconfig.h | $(BUILD_DIR)
+	$(CC) $(RTTHREAD_FLAGS) -std=c11 -c $< -o $@
+
+$(BUILD_DIR)/app_main.o: applications/main.c $(BSP_ROOT)/bsp/board.h $(BSP_ROOT)/bsp/drv_hcsr04.h rtconfig.h | $(BUILD_DIR)
 	$(CC) $(RTTHREAD_FLAGS) -std=c11 -c $< -o $@
 
 $(BUILD_DIR)/core_portme.o: core_portme.c core_portme.h rtconfig.h | $(BUILD_DIR)
@@ -115,6 +120,17 @@ $(BUILD_DIR)/core_main.o: $(COREMARK_ROOT)/core_main.c core_portme.h | $(BUILD_D
 
 $(BUILD_DIR)/core_%.o: $(COREMARK_ROOT)/core_%.c core_portme.h | $(BUILD_DIR)
 	$(CC) $(COREMARK_FLAGS) -std=c99 -c $< -o $@
+
+ifneq ($(strip $(PGO_PROFILE_DIR)),)
+$(BUILD_DIR)/core_main.o: $(BUILD_DIR)/core_main.gcda
+$(BUILD_DIR)/core_list_join.o: $(BUILD_DIR)/core_list_join.gcda
+$(BUILD_DIR)/core_matrix.o: $(BUILD_DIR)/core_matrix.gcda
+$(BUILD_DIR)/core_state.o: $(BUILD_DIR)/core_state.gcda
+$(BUILD_DIR)/core_util.o: $(BUILD_DIR)/core_util.gcda
+
+$(BUILD_DIR)/%.gcda: $(PGO_PROFILE_DIR)/%.gcda | $(BUILD_DIR)
+	cp $< $@
+endif
 
 $(BUILD_DIR)/cpuport.o: $(RTT_PORT)/cpuport.c rtconfig.h | $(BUILD_DIR)
 	$(CC) $(RTTHREAD_FLAGS) -std=c99 -c $< -o $@

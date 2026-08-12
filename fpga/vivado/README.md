@@ -143,3 +143,18 @@ RT-Thread 固件应通过 UART 输出启动 banner、主线程、工作线程和
 每次修改 CPU/外设 RTL，都要重新综合和实现；每次修改 C/汇编程序，都要重新生成 COE，并至少重新生成 BRAM IP 输出产品和 bit 流。不能只替换磁盘上的 COE 后继续使用旧 bit 流。
 
 `new/run_impl_*.tcl`、`new/set_clk2_only.tcl` 和 `step8/vivado_recover_190.tcl` 是以前的单次调试/恢复脚本，保留用于追溯，不作为当前正式构建入口。正式入口只有本目录的 `build_bitstream.ps1`/`build_bitstream.tcl`。
+
+## HC-SR04 / 64 KiB IROM 分支
+
+该分支的 `Mem_IROM` 固定为 16,384 个 32 位字（64 KiB），构建脚本会检查并重新生成该深度。固件命令如下：
+
+```powershell
+wsl bash -lc "cd /mnt/c/Users/hp/Downloads/digital_twin/digital_twin.srcs/sources_1/software/rtthread_nano/coremark && make -B BUILD_DIR=build/fpga IROM_WORDS=16384 TIMER_PERIOD_CYCLES=2000000 COREMARK_ITERATIONS=10000 RTTHREAD_OPT_FLAGS=-O1 COREMARK_OPT_FLAGS='-O3 -fprofile-use -fno-profile-values -fprofile-correction' COREMARK_FLAGS_LABEL='-O3 + PGO' PGO_PROFILE_DIR=profiles/coremark_100"
+```
+
+`build_bitstream.tcl` 会把 `new/hcsr04_controller.sv` 和
+`fpga/xdc/hcsr04_j7_g17_g18.xdc` 加入 Vivado 工程。约束固定为：
+
+- G17 / J7-1 / Debug_1：`hcsr04_trig`；
+- G18 / J7-2 / Debug_2：`hcsr04_echo`；
+- Bank 17 VADJ1 必须为 3.3 V，ECHO 必须先降压到 3.3 V。

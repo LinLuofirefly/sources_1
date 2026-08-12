@@ -2,13 +2,13 @@
 #
 # Example:
 #   vivado -mode batch -source build_bitstream.tcl -tclargs \
-#     -firmware_dir C:/path/to/build/fpga -freq_mhz 190 -name rtthread_step8
+#     -firmware_dir C:/path/to/build/fpga -freq_mhz 200 -name rtthread_hcsr04
 
 proc print_usage {} {
     puts {Usage: build_bitstream.tcl -firmware_dir DIR ?options?}
     puts {  -project FILE            Vivado .xpr (default: repository digital_twin.xpr)}
     puts {  -firmware_dir DIR        directory containing irom.coe and dram.coe}
-    puts {  -freq_mhz NUMBER         requested CPU PLL frequency (default: 190)}
+    puts {  -freq_mhz NUMBER         requested CPU PLL frequency (default: 200)}
     puts {  -baud NUMBER             CPU UART baud rate (default: 115200)}
     puts {  -jobs NUMBER             parallel Vivado jobs (default: 8)}
     puts {  -name TEXT               output name (default: digital_twin_<freq>MHz)}
@@ -52,11 +52,13 @@ proc run_and_check {run_name jobs label} {
 
 set script_dir [file dirname [file normalize [info script]]]
 set default_project [file normalize [file join $script_dir .. .. .. .. digital_twin.xpr]]
+set hcsr04_rtl [file normalize [file join $script_dir .. .. new hcsr04_controller.sv]]
+set hcsr04_xdc [file normalize [file join $script_dir .. xdc hcsr04_j7_g17_g18.xdc]]
 
 array set options [list \
     project $default_project \
     firmware_dir {} \
-    freq_mhz 190.000 \
+    freq_mhz 200.000 \
     baud 115200 \
     jobs 8 \
     name {} \
@@ -116,6 +118,8 @@ set dram_coe [file join $firmware_dir dram.coe]
 require_file $project_path {Vivado project}
 require_file $irom_coe {IROM initialization file}
 require_file $dram_coe {DRAM initialization file}
+require_file $hcsr04_rtl {HC-SR04 RTL source}
+require_file $hcsr04_xdc {HC-SR04 J7 pin constraints}
 
 set freq_tag [string map {. _} [format %.3f $options(freq_mhz)]]
 if {$options(name) eq {}} {
@@ -140,6 +144,13 @@ open_project $project_path
 set_param general.maxThreads $options(jobs)
 
 set source_set [require_one [get_filesets -quiet sources_1] {source fileset 'sources_1'}]
+set constraint_set [require_one [get_filesets -quiet constrs_1] {constraint fileset 'constrs_1'}]
+if {[llength [get_files -quiet [file tail $hcsr04_rtl]]] == 0} {
+    add_files -fileset $source_set -norecurse $hcsr04_rtl
+}
+if {[llength [get_files -quiet [file tail $hcsr04_xdc]]] == 0} {
+    add_files -fileset $constraint_set -norecurse $hcsr04_xdc
+}
 set project_top [get_property TOP $source_set]
 set project_part [get_property PART [current_project]]
 if {$project_top ne {top}} {
@@ -158,8 +169,8 @@ if {$options(check_only)} {
     puts "FPGA_BUILD_CHECK: current_pll_mhz=[get_property CONFIG.CLKOUT2_REQUESTED_OUT_FREQ $pll_ip]"
     set current_irom_depth [get_property CONFIG.Write_Depth_A $irom_ip]
     puts "FPGA_BUILD_CHECK: irom_words=$current_irom_depth"
-    if {$current_irom_depth != 8192} {
-        fail_build "Mem_IROM must be 8192 words (32 KiB), got $current_irom_depth" 3
+    if {$current_irom_depth != 16384} {
+        fail_build "Mem_IROM must be 16384 words (64 KiB), got $current_irom_depth" 3
     }
     puts "FPGA_BUILD_CHECK: would bind Mem_IROM to $irom_coe"
     puts "FPGA_BUILD_CHECK: would bind Mem_RAM to $dram_coe"
@@ -178,7 +189,7 @@ set_property generic [list \
     P_CPU_UART_BAUD_RATE=$options(baud)] $source_set
 
 # Bind the requested software image before regenerating the BRAM output products.
-set_property CONFIG.Write_Depth_A 8192 $irom_ip
+set_property CONFIG.Write_Depth_A 16384 $irom_ip
 set_property CONFIG.Load_Init_File true $irom_ip
 set_property CONFIG.Coe_File $irom_coe $irom_ip
 set_property CONFIG.Load_Init_File true $dram_ip

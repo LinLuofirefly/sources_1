@@ -29,6 +29,8 @@ module top #(
     input  wire i_sys_clk_n         ,
     input  wire i_uart_rx           ,
     output wire o_uart_tx           ,
+    input  wire hcsr04_echo         ,
+    output wire hcsr04_trig         ,
 
     output wire [31:0] virtual_led  ,
     output wire [39:0] virtual_seg
@@ -104,9 +106,11 @@ module top #(
         .virtual_key(virtual_key),
         .virtual_sw(virtual_sw),
         .cpu_uart_rx(cpu_uart_rx_input),
+        .hcsr04_echo(hcsr04_echo),
         .virtual_led(virtual_led),
         .virtual_seg(virtual_seg),
-        .cpu_uart_tx(cpu_uart_tx)
+        .cpu_uart_tx(cpu_uart_tx),
+        .hcsr04_trig(hcsr04_trig)
     );
 
 endmodule

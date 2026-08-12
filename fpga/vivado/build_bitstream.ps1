@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FirmwareDir,
 
-    [double]$FrequencyMHz = 190.0,
+    [double]$FrequencyMHz = 200.0,
     [int]$Baud = 115200,
     [int]$Jobs = 8,
     [string]$Name = "",

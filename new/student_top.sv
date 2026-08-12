@@ -34,15 +34,17 @@ module student_top#(
     input  [P_KEY_CNT - 1:0]                    virtual_key   ,
     input  [P_SW_CNT  - 1:0]                    virtual_sw    ,
     input                                       cpu_uart_rx   ,
+    input                                       hcsr04_echo   ,
 
     output [P_LED_CNT - 1:0]                    virtual_led   ,
     output [P_SEG_CNT - 1:0]                    virtual_seg   ,
-    output                                      cpu_uart_tx
+    output                                      cpu_uart_tx   ,
+    output                                      hcsr04_trig
 );
 
     // IROM
     logic [31:0] pc;
-    logic [12:0] inst_addr;
+    logic [13:0] inst_addr;
     logic [31:0] instruction;
 
     // perip
@@ -52,8 +54,8 @@ module student_top#(
     logic         perip_rd_en;
     logic [3:0] perip_wstrb;
 
-    // 32KB = 2^13 * 32bit
-    assign inst_addr = pc[14:2];
+    // 64 KiB = 2^14 words * 32 bits.
+    assign inst_addr = pc[15:2];
 
     myCPU Core_cpu (
         .cpu_rst            (w_clk_rst),
@@ -99,9 +101,11 @@ module student_top#(
         .virtual_sw_input	(virtual_sw),
         .virtual_key_input	(virtual_key),	
         .uart_rx_input      (cpu_uart_rx),
+        .hcsr04_echo_input  (hcsr04_echo),
         .virtual_seg_output	(virtual_seg),
         .virtual_led_output (virtual_led),
-        .uart_tx_output     (cpu_uart_tx)
+        .uart_tx_output     (cpu_uart_tx),
+        .hcsr04_trig_output (hcsr04_trig)
     );
 
 endmodule

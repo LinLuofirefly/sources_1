@@ -39,10 +39,12 @@ module perip_bridge #(
     input  logic [63:0]  virtual_sw_input	,
     input  logic [7:0]   virtual_key_input	,
     input  logic         uart_rx_input      ,
+    input  logic         hcsr04_echo_input  ,
 
 	output logic [39:0]  virtual_seg_output	,
     output logic [31:0]  virtual_led_output,
-    output logic         uart_tx_output
+    output logic         uart_tx_output,
+    output logic         hcsr04_trig_output
 );
     localparam DRAM_ADDR_START = 32'h8010_0000;
     localparam DRAM_ADDR_END   = 32'h8013_FFFF;
@@ -56,6 +58,10 @@ module perip_bridge #(
     localparam UART_STATUS_ADDR = 32'h8020_0074;  // read bit 0: TX ready
     localparam UART_RX_DATA_ADDR   = 32'h8020_0078;  // read: oldest RX byte
     localparam UART_RX_STATUS_ADDR = 32'h8020_007C;  // read bit 0: RX valid
+    localparam HCSR04_CTRL_ADDR        = 32'h8020_0080; // write bit 0: start
+    localparam HCSR04_STATUS_ADDR      = 32'h8020_0084; // busy/done/timeout/echo
+    localparam HCSR04_ECHO_US_ADDR     = 32'h8020_0088; // latched pulse width
+    localparam HCSR04_ECHO_CYCLES_ADDR = 32'h8020_008C; // raw CPU-clock cycles
     localparam CNT_START_CMD = 32'h8000_0000;
     localparam CNT_STOP_CMD  = 32'hFFFF_FFFF; 
     localparam integer UART_BAUD_DIV_CALC = P_CPU_CLK_HZ / P_UART_BAUD_RATE;
@@ -119,6 +125,9 @@ module perip_bridge #(
     logic rd_is_uart_status_r, rd_is_uart_status_rr;
     logic rd_is_uart_rx_data_r, rd_is_uart_rx_data_rr;
     logic rd_is_uart_rx_status_r, rd_is_uart_rx_status_rr;
+    logic rd_is_hcsr04_status_r, rd_is_hcsr04_status_rr;
+    logic rd_is_hcsr04_echo_us_r, rd_is_hcsr04_echo_us_rr;
+    logic rd_is_hcsr04_echo_cycles_r, rd_is_hcsr04_echo_cycles_rr;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -134,6 +143,12 @@ module perip_bridge #(
             rd_is_uart_rx_data_rr  <= 1'b0;
             rd_is_uart_rx_status_r <= 1'b0;
             rd_is_uart_rx_status_rr <= 1'b0;
+            rd_is_hcsr04_status_r <= 1'b0;
+            rd_is_hcsr04_status_rr <= 1'b0;
+            rd_is_hcsr04_echo_us_r <= 1'b0;
+            rd_is_hcsr04_echo_us_rr <= 1'b0;
+            rd_is_hcsr04_echo_cycles_r <= 1'b0;
+            rd_is_hcsr04_echo_cycles_rr <= 1'b0;
         end else begin
             // Cycle 0: decode address at request time
             rd_is_dram_r <= perip_rd_en &&
@@ -150,6 +165,12 @@ module perip_bridge #(
                                     perip_rd_addr == UART_RX_DATA_ADDR;
             rd_is_uart_rx_status_r <= perip_rd_en &&
                                       perip_rd_addr == UART_RX_STATUS_ADDR;
+            rd_is_hcsr04_status_r <= perip_rd_en &&
+                                     perip_rd_addr == HCSR04_STATUS_ADDR;
+            rd_is_hcsr04_echo_us_r <= perip_rd_en &&
+                                      perip_rd_addr == HCSR04_ECHO_US_ADDR;
+            rd_is_hcsr04_echo_cycles_r <= perip_rd_en &&
+                                          perip_rd_addr == HCSR04_ECHO_CYCLES_ADDR;
 
             // Cycle 1: first pipeline stage
             rd_is_dram_rr <= rd_is_dram_r;
@@ -161,6 +182,9 @@ module perip_bridge #(
             rd_is_uart_status_rr <= rd_is_uart_status_r;
             rd_is_uart_rx_data_rr <= rd_is_uart_rx_data_r;
             rd_is_uart_rx_status_rr <= rd_is_uart_rx_status_r;
+            rd_is_hcsr04_status_rr <= rd_is_hcsr04_status_r;
+            rd_is_hcsr04_echo_us_rr <= rd_is_hcsr04_echo_us_r;
+            rd_is_hcsr04_echo_cycles_rr <= rd_is_hcsr04_echo_cycles_r;
         end
     end
 
@@ -200,9 +224,47 @@ module perip_bridge #(
             rd_is_uart_rx_status_rr:
                 mmio_rdata_next = {22'd0, uart_rx_overrun, uart_rx_count,
                                     3'd0, |uart_rx_count};
+            rd_is_hcsr04_status_rr:      mmio_rdata_next = hcsr04_status;
+            rd_is_hcsr04_echo_us_rr:     mmio_rdata_next = hcsr04_echo_us;
+            rd_is_hcsr04_echo_cycles_rr: mmio_rdata_next = hcsr04_echo_cycles;
             default:       mmio_rdata_next = 32'h0;
         endcase
     end
+
+    // HC-SR04 measurement engine.  START is ignored while BUSY, which also
+    // makes the command robust if a CPU MMIO write is held for several cycles.
+    logic        hcsr04_busy;
+    logic        hcsr04_done;
+    logic        hcsr04_timeout;
+    logic        hcsr04_echo_level;
+    logic [31:0] hcsr04_echo_us;
+    logic [31:0] hcsr04_echo_cycles;
+    logic [31:0] hcsr04_status;
+
+    wire hcsr04_start = perip_write_req &&
+                        (perip_addr == HCSR04_CTRL_ADDR) && perip_wdata[0];
+    wire hcsr04_clear = perip_write_req &&
+                        (perip_addr == HCSR04_CTRL_ADDR) && perip_wdata[1];
+
+    assign hcsr04_status = {28'd0, hcsr04_echo_level, hcsr04_timeout,
+                            hcsr04_done, hcsr04_busy};
+
+    hcsr04_controller #(
+        .P_CLK_HZ(P_CPU_CLK_HZ)
+    ) hcsr04_inst (
+        .clk         (clk),
+        .rst         (rst),
+        .start       (hcsr04_start),
+        .clear       (hcsr04_clear),
+        .echo_async  (hcsr04_echo_input),
+        .trig        (hcsr04_trig_output),
+        .busy        (hcsr04_busy),
+        .done        (hcsr04_done),
+        .timeout     (hcsr04_timeout),
+        .echo_level  (hcsr04_echo_level),
+        .echo_cycles (hcsr04_echo_cycles),
+        .echo_us     (hcsr04_echo_us)
+    );
 
     // Minimal polling UART transmitter for the CPU console.  The existing
     // top-level UART remains dedicated to the digital-twin protocol.
