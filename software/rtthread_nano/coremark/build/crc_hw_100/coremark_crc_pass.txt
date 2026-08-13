@@ -1,0 +1,8 @@
+CoreMark CRC compiler pass
+source=../third_party/coremark/core_util.c
+source_sha256=166e9bf09afd290adffe2c6681d913c18373f77e457fae258499fbaad10b04fc
+encoding=R CUSTOM-0 opcode=0x0b funct7=0 funct3=0
+semantics=cmcrc16 rd,rs1,rs2
+replaced=crcu16 original_assembly_lines=147
+replaced=crcu32 original_assembly_lines=294
+replaced=crc16 original_assembly_lines=149

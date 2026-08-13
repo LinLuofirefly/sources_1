@@ -28,6 +28,14 @@
 `define INST_FUNC7_R   7'b0000000
 `define INST_FUNC7_M   7'b0000001
 `define INST_FUNC7_SUB 7'b0100000
+
+// CoreMark CRC16 custom instruction (RISC-V CUSTOM-0 encoding).
+//   cmcrc16 rd, rs1, rs2
+//   rd[15:0] = CRC16(rs1[15:0], rs2[15:0]), rd[31:16] = 0
+// The data word is consumed least-significant byte first, matching crcu16().
+`define INST_CUSTOM_0       7'b0001011
+`define INST_CMCRC16_FUNC3  3'b000
+`define INST_CMCRC16_FUNC7  7'b0000000
 // R type inst
 `define INST_ADD_SUB 3'b000
 `define INST_SLL    3'b001

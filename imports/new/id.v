@@ -63,6 +63,9 @@ module id (
     wire system_use_rs1 = (opcode == `INST_SYSTEM) &&
                           ((func3 == `INST_CSRRW) || (func3 == `INST_CSRRS) || (func3 == `INST_CSRRC));
     wire is_system      = (opcode == `INST_SYSTEM);
+    wire is_cmcrc16     = (opcode == `INST_CUSTOM_0) &&
+                          (func3 == `INST_CMCRC16_FUNC3) &&
+                          (func7 == `INST_CMCRC16_FUNC7);
     wire rd_is_link     = (rd == 5'b1)||(rd == 5'b00101);
     wire rs1_is_link    = (rs1 == 5'b1)||(rs1 == 5'b00101);
     wire is_jalr_hint   = (opcode == `INST_JALR) && (func3 == 3'b000);
@@ -78,11 +81,13 @@ module id (
                        (opcode == `INST_TYPE_L)   ||
                        (opcode == `INST_TYPE_S)   ||
                        (opcode == `INST_JALR)     ||
+                       is_cmcrc16                 ||
                        system_use_rs1;
 
     assign use_rs2_o = (opcode == `INST_TYPE_R_M) ||
                        (opcode == `INST_TYPE_B)   ||
-                       (opcode == `INST_TYPE_S);
+                       (opcode == `INST_TYPE_S)   ||
+                       is_cmcrc16;
 
     assign use_base_addr_o = (opcode == `INST_TYPE_L) ||
                              (opcode == `INST_TYPE_S) ||
@@ -165,6 +170,14 @@ module id (
                     default: begin
                     end
                 endcase
+            end
+
+            `INST_CUSTOM_0: begin
+                if (is_cmcrc16) begin
+                    op1_o   = rs1_data_i;
+                    op2_o   = rs2_data_i;
+                    reg_wen = 1'b1;
+                end
             end
 
             `INST_TYPE_B: begin

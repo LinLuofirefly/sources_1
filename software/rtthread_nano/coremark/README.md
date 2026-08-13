@@ -76,3 +76,47 @@ msh >distance
 
 To build a bitstream, select this directory's `build/fpga` as `FirmwareDir` in
 `fpga/vivado/build_bitstream.ps1`.
+
+## Experimental CoreMark CRC instruction
+
+The `experiment-coremark-crc-hw` branch adds `cmcrc16`, an R-type instruction
+in the RISC-V CUSTOM-0 opcode space:
+
+```text
+opcode = 0x0b, funct7 = 0, funct3 = 0
+cmcrc16 rd, rs1, rs2
+rd = zero_extend(crcu16(rs1[15:0], rs2[15:0]))
+```
+
+The RTL implements the reflected `0xa001` update as a parallel XOR network.
+The upstream CoreMark source is not edited. GCC first emits optimized assembly
+for `core_util.c`; `compiler/coremark_crc_pass.py` then verifies the expected
+CRC pattern and the official source SHA-256 before replacing `crcu16`, `crc16`
+and `crcu32` with CUSTOM-0 instructions. Assembly, linking, ELF and COE
+generation then use the normal toolchain.
+
+Build the 100-iteration accelerated image with:
+
+```sh
+make -B BUILD_DIR=build/crc_hw_100 \
+  TIMER_PERIOD_CYCLES=2000000 IROM_WORDS=16384 \
+  COREMARK_ITERATIONS=100 COREMARK_ALLOW_SHORT_RUN=1 \
+  RTTHREAD_OPT_FLAGS=-O1 COREMARK_OPT_FLAGS=-O3 \
+  COREMARK_FLAGS_LABEL="-O3 + cmcrc16" COREMARK_CRC_HW=1
+```
+
+The generated FPGA files are `build/crc_hw_100/irom.coe` and
+`build/crc_hw_100/dram.coe`. The compiler recognition audit is written to
+`build/crc_hw_100/coremark_crc_pass.txt`.
+
+At an ideal 200 MHz CPU clock, the Verilator 100-iteration comparison was:
+
+| Build | CPU cycles | Exact time | 1 kHz ticks | Iterations/s |
+|---|---:|---:|---:|---:|
+| GCC `-O3` baseline | 38,327,527 | 0.191637635 s | 191 | 523.560209 |
+| GCC `-O3` + `cmcrc16` | 34,072,867 | 0.170364335 s | 170 | 588.235294 |
+
+The accelerated run retired 29,200 `cmcrc16` instructions, saved 4,254,660
+cycles (11.10% elapsed-cycle reduction, 1.1249x speedup), and produced the
+standard `e714/1fd7/8e3a/988c` CRC values. A 100-iteration run is a functional
+and comparative test only; it is shorter than CoreMark's reportable duration.

@@ -40,6 +40,9 @@ PORTME_OPT_FLAGS     ?= $(RTTHREAD_OPT_FLAGS)
 LINK_OPT_FLAGS       ?=
 PGO_CAPTURE          ?= 0
 PGO_PROFILE_DIR      ?=
+COREMARK_CRC_HW      ?= 0
+CRC_COMPILER_PASS    := compiler/coremark_crc_pass.py
+COREMARK_CORE_UTIL_SHA256 := 166e9bf09afd290adffe2c6681d913c18373f77e457fae258499fbaad10b04fc
 
 ifeq ($(PGO_CAPTURE),1)
 PGO_CAPTURE_FLAGS := -DCOREMARK_PGO_CAPTURE=1
@@ -117,6 +120,20 @@ $(BUILD_DIR)/pgo_dump.o: pgo_dump.c | $(BUILD_DIR)
 
 $(BUILD_DIR)/core_main.o: $(COREMARK_ROOT)/core_main.c core_portme.h | $(BUILD_DIR)
 	$(CC) $(COREMARK_FLAGS) -std=c99 -Dmain=coremark_entry -c $< -o $@
+
+ifeq ($(COREMARK_CRC_HW),1)
+# GCC still parses and optimizes the untouched upstream C source.  The small
+# backend peephole pass recognizes GCC's expanded CoreMark CRC functions and
+# substitutes CUSTOM-0 cmcrc16 instructions before normal assembly/linking.
+$(BUILD_DIR)/core_util.o: $(COREMARK_ROOT)/core_util.c core_portme.h $(CRC_COMPILER_PASS) | $(BUILD_DIR)
+	$(CC) $(COREMARK_FLAGS) -std=c99 -g0 -S $< -o $(BUILD_DIR)/core_util.gcc.s
+	python3 $(CRC_COMPILER_PASS) \
+		--input $(BUILD_DIR)/core_util.gcc.s \
+		--output $(BUILD_DIR)/core_util.crc.s \
+		--source $< --source-sha256 $(COREMARK_CORE_UTIL_SHA256) \
+		--report $(BUILD_DIR)/coremark_crc_pass.txt
+	$(CC) $(ARCH_FLAGS) -c $(BUILD_DIR)/core_util.crc.s -o $@
+endif
 
 $(BUILD_DIR)/core_%.o: $(COREMARK_ROOT)/core_%.c core_portme.h | $(BUILD_DIR)
 	$(CC) $(COREMARK_FLAGS) -std=c99 -c $< -o $@

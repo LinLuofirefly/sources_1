@@ -103,6 +103,36 @@ module ex (
      wire [31:0] branch_op1 = fwd_br_op1_i;
      wire [31:0] branch_op2 = fwd_br_op2_i;
 
+     wire is_cmcrc16_w = (inst_i[6:0] == `INST_CUSTOM_0) &&
+                         (inst_i[14:12] == `INST_CMCRC16_FUNC3) &&
+                         (inst_i[31:25] == `INST_CMCRC16_FUNC7);
+
+     // Parallel form of CoreMark's reflected 0xa001 CRC update.  Let x be
+     // data XOR the incoming CRC.  The fixed polynomial reduces the original
+     // 16 serial bit iterations to a shallow LUT-friendly XOR network.
+     wire [15:0] cmcrc_x_w = alu_op1[15:0] ^ alu_op2[15:0];
+     wire [15:0] cmcrc16_result16_w;
+     assign cmcrc16_result16_w[0]  = cmcrc_x_w[0] ^ cmcrc_x_w[1] ^
+                                     (^cmcrc_x_w[15:3]);
+     assign cmcrc16_result16_w[1]  = cmcrc_x_w[2]  ^ cmcrc_x_w[3];
+     assign cmcrc16_result16_w[2]  = cmcrc_x_w[3]  ^ cmcrc_x_w[4];
+     assign cmcrc16_result16_w[3]  = cmcrc_x_w[4]  ^ cmcrc_x_w[5];
+     assign cmcrc16_result16_w[4]  = cmcrc_x_w[5]  ^ cmcrc_x_w[6];
+     assign cmcrc16_result16_w[5]  = cmcrc_x_w[6]  ^ cmcrc_x_w[7];
+     assign cmcrc16_result16_w[6]  = cmcrc_x_w[7]  ^ cmcrc_x_w[8];
+     assign cmcrc16_result16_w[7]  = cmcrc_x_w[8]  ^ cmcrc_x_w[9];
+     assign cmcrc16_result16_w[8]  = cmcrc_x_w[9]  ^ cmcrc_x_w[10];
+     assign cmcrc16_result16_w[9]  = cmcrc_x_w[10] ^ cmcrc_x_w[11];
+     assign cmcrc16_result16_w[10] = cmcrc_x_w[11] ^ cmcrc_x_w[12];
+     assign cmcrc16_result16_w[11] = cmcrc_x_w[12] ^ cmcrc_x_w[13];
+     assign cmcrc16_result16_w[12] = cmcrc_x_w[0]  ^ cmcrc_x_w[13] ^
+                                     cmcrc_x_w[14];
+     assign cmcrc16_result16_w[13] = cmcrc_x_w[1]  ^ cmcrc_x_w[14] ^
+                                     cmcrc_x_w[15];
+     assign cmcrc16_result16_w[14] = ^cmcrc_x_w[14:1];
+     assign cmcrc16_result16_w[15] = cmcrc_x_w[0] ^ (^cmcrc_x_w[15:2]);
+     wire [31:0] cmcrc16_result_w = {16'b0, cmcrc16_result16_w};
+
      // Normal branches and load-dependent branches terminate in separate
      // comparators.  The latter is defined below and feeds only a registered
      // redirect packet.
@@ -380,7 +410,13 @@ module ex (
             rd_wen_o  = rv32m_rd_wen_r;
             inst_o    = rv32m_inst_r;
         end else begin
-            if (dec_is_op_imm_i) begin
+            if (is_cmcrc16_w) begin
+                    rd_data_o = cmcrc16_result_w;
+                    rd_addr_o = rd_addr_i;
+                    rd_wen_o  = rd_wen_i;
+            end
+
+            else if (dec_is_op_imm_i) begin
                     case (func3)
                         `INST_ADDI:  rd_data_o = op1_i_add_op2_i;
                         `INST_SLTI:  rd_data_o = {31'b0, alu_less_signed};
