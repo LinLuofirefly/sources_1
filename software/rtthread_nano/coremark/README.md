@@ -1,6 +1,6 @@
 # RT-Thread Nano + CoreMark FPGA firmware
 
-This target links the RT-Thread Nano kernel, the maintained step8 BSP, the
+This target links the RT-Thread v3.1.5 Nano kernel, the maintained step8 BSP, the
 upstream CoreMark 1.0 workload and the HC-SR04 command into one FPGA firmware
 image. `coremark` and `distance` are independent shell commands; they do not
 run concurrently and the FPGA only needs one firmware image.
@@ -12,9 +12,9 @@ From WSL or Linux:
 ```sh
 make -B BUILD_DIR=build/fpga TIMER_PERIOD_CYCLES=2000000 IROM_WORDS=16384 \
   COREMARK_ITERATIONS=10000 RTTHREAD_OPT_FLAGS=-O1 \
-  COREMARK_OPT_FLAGS="-O3 -fprofile-use -fno-profile-values -fprofile-correction" \
-  COREMARK_FLAGS_LABEL="-O3 + PGO" \
-  PGO_PROFILE_DIR=profiles/coremark_100
+  COREMARK_OPT_FLAGS=-O3 \
+  COREMARK_FLAGS_LABEL="-O3 + cmcrc16 / RT-Thread 3.1.5" \
+  COREMARK_CRC_HW=1
 ```
 
 `RTTHREAD_OPT_FLAGS` applies to the RT-Thread kernel, BSP, port and shell.
@@ -77,9 +77,9 @@ msh >distance
 To build a bitstream, select this directory's `build/fpga` as `FirmwareDir` in
 `fpga/vivado/build_bitstream.ps1`.
 
-## Experimental CoreMark CRC instruction
+## CoreMark CRC instruction
 
-The `experiment-coremark-crc-hw` branch adds `cmcrc16`, an R-type instruction
+The CPU implements `cmcrc16`, an R-type instruction
 in the RISC-V CUSTOM-0 opcode space:
 
 ```text
@@ -98,25 +98,25 @@ generation then use the normal toolchain.
 Build the 100-iteration accelerated image with:
 
 ```sh
-make -B BUILD_DIR=build/crc_hw_100 \
+make -B BUILD_DIR=build/rtthread315_crc100 \
   TIMER_PERIOD_CYCLES=2000000 IROM_WORDS=16384 \
   COREMARK_ITERATIONS=100 COREMARK_ALLOW_SHORT_RUN=1 \
   RTTHREAD_OPT_FLAGS=-O1 COREMARK_OPT_FLAGS=-O3 \
-  COREMARK_FLAGS_LABEL="-O3 + cmcrc16" COREMARK_CRC_HW=1
+  COREMARK_FLAGS_LABEL="-O3 + cmcrc16 / RT-Thread 3.1.5" COREMARK_CRC_HW=1
 ```
 
-The generated FPGA files are `build/crc_hw_100/irom.coe` and
-`build/crc_hw_100/dram.coe`. The compiler recognition audit is written to
-`build/crc_hw_100/coremark_crc_pass.txt`.
+The generated FPGA files are `build/rtthread315_crc100/irom.coe` and
+`build/rtthread315_crc100/dram.coe`. The compiler recognition audit is written
+to `build/rtthread315_crc100/coremark_crc_pass.txt`.
 
 At an ideal 200 MHz CPU clock, the Verilator 100-iteration comparison was:
 
 | Build | CPU cycles | Exact time | 1 kHz ticks | Iterations/s |
 |---|---:|---:|---:|---:|
-| GCC `-O3` baseline | 38,327,527 | 0.191637635 s | 191 | 523.560209 |
-| GCC `-O3` + `cmcrc16` | 34,072,867 | 0.170364335 s | 170 | 588.235294 |
+| v3.1.5 + GCC `-O3` baseline | 38,327,880 | 0.191639400 s | 191 | 523.560209 |
+| v3.1.5 + GCC `-O3` + `cmcrc16` | 34,073,030 | 0.170365150 s | 170 | 588.235294 |
 
-The accelerated run retired 29,200 `cmcrc16` instructions, saved 4,254,660
+The accelerated run retired 29,200 `cmcrc16` instructions, saved 4,254,850
 cycles (11.10% elapsed-cycle reduction, 1.1249x speedup), and produced the
 standard `e714/1fd7/8e3a/988c` CRC values. A 100-iteration run is a functional
 and comparative test only; it is shorter than CoreMark's reportable duration.

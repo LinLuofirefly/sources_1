@@ -178,8 +178,6 @@ extern "C" {
 
 #define LOG_RAW(...)         dbg_raw(__VA_ARGS__)
 
-#define LOG_HEX(name, width, buf, size)
-
 #endif /* defined(RT_USING_ULOG) && define(DBG_ENABLE) */
 
 #ifdef __cplusplus

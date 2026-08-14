@@ -5,7 +5,7 @@ OBJCOPY := $(CROSS_COMPILE)objcopy
 OBJDUMP := $(CROSS_COMPILE)objdump
 SIZE    := $(CROSS_COMPILE)size
 
-RTT_ROOT    := ../third_party/rt-thread-v4.1.1
+RTT_ROOT    := ../third_party/rt-thread-v3.1.5
 RTT_INCLUDE := $(RTT_ROOT)/include
 RTT_SRC     := $(RTT_ROOT)/src
 RTT_PORT    := $(RTT_ROOT)/port-reference

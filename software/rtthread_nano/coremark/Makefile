@@ -7,7 +7,7 @@ SIZE    := $(CROSS_COMPILE)size
 
 BSP_ROOT      := ../step8
 TOOLS_ROOT    := ../tools
-RTT_ROOT      := ../third_party/rt-thread-v4.1.1
+RTT_ROOT      := ../third_party/rt-thread-v3.1.5
 RTT_INCLUDE   := $(RTT_ROOT)/include
 RTT_SRC       := $(RTT_ROOT)/src
 RTT_PORT      := $(RTT_ROOT)/port-reference

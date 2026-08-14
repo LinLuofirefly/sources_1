@@ -1,6 +1,7 @@
 # RT-Thread Nano BSP
 
-This directory is the maintained FPGA BSP and application for RT-Thread Nano.
+This directory is the maintained FPGA BSP and application for RT-Thread
+v3.1.5 Nano.
 It includes machine-timer scheduling and a polling UART console for
 `rt_kprintf`.
 
