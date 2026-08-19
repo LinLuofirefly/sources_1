@@ -44,7 +44,7 @@ module student_top#(
 
     // IROM
     logic [31:0] pc;
-    logic [13:0] inst_addr;
+    logic [12:0] inst_addr;
     logic [31:0] instruction;
 
     // perip
@@ -54,8 +54,8 @@ module student_top#(
     logic         perip_rd_en;
     logic [3:0] perip_wstrb;
 
-    // 64 KiB = 2^14 words * 32 bits.
-    assign inst_addr = pc[15:2];
+    // 32 KiB = 2^13 words * 32 bits.
+    assign inst_addr = pc[14:2];
 
     myCPU Core_cpu (
         .cpu_rst            (w_clk_rst),

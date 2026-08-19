@@ -10,6 +10,7 @@ proc print_usage {} {
     puts {  -firmware_dir DIR        directory containing irom.coe and dram.coe}
     puts {  -freq_mhz NUMBER         requested CPU PLL frequency (default: 200)}
     puts {  -baud NUMBER             CPU UART baud rate (default: 115200)}
+    puts {  -irom_words NUMBER       IROM depth in 32-bit words (default: 8192 / 32 KiB)}
     puts {  -jobs NUMBER             parallel Vivado jobs (default: 8)}
     puts {  -name TEXT               output name (default: digital_twin_<freq>MHz)}
     puts {  -out_dir DIR             output directory (default: DIR/vivado_<freq>MHz)}
@@ -44,7 +45,7 @@ proc run_and_check {run_name jobs label} {
     wait_on_run $run_obj
     set status [get_property STATUS $run_obj]
     puts "FPGA_BUILD_RUN: $label status='$status'"
-    if {![regexp -nocase {complete} $status]} {
+    if {![regexp -nocase {complete|cached IP results} $status]} {
         fail_build "$label did not complete (status '$status')" 4
     }
     return $status
@@ -60,6 +61,7 @@ array set options [list \
     firmware_dir {} \
     freq_mhz 200.000 \
     baud 115200 \
+    irom_words 8192 \
     jobs 8 \
     name {} \
     out_dir {} \
@@ -70,7 +72,7 @@ set index 0
 while {$index < [llength $argv]} {
     set key [lindex $argv $index]
     switch -- $key {
-        -project - -firmware_dir - -freq_mhz - -baud - -jobs - -name - -out_dir {
+        -project - -firmware_dir - -freq_mhz - -baud - -irom_words - -jobs - -name - -out_dir {
             incr index
             if {$index >= [llength $argv]} {
                 print_usage
@@ -107,6 +109,9 @@ if {![string is double -strict $options(freq_mhz)] || $options(freq_mhz) <= 0.0}
 if {![string is integer -strict $options(baud)] || $options(baud) <= 0} {
     fail_build "invalid -baud '$options(baud)'" 2
 }
+if {![string is integer -strict $options(irom_words)] || $options(irom_words) <= 0} {
+    fail_build "invalid -irom_words '$options(irom_words)'" 2
+}
 if {![string is integer -strict $options(jobs)] || $options(jobs) <= 0} {
     fail_build "invalid -jobs '$options(jobs)'" 2
 }
@@ -139,6 +144,7 @@ puts "FPGA_BUILD_INPUT: firmware=$firmware_dir"
 puts "FPGA_BUILD_INPUT: irom=$irom_coe ([file size $irom_coe] bytes)"
 puts "FPGA_BUILD_INPUT: dram=$dram_coe ([file size $dram_coe] bytes)"
 puts "FPGA_BUILD_INPUT: requested_cpu_mhz=$options(freq_mhz) uart_baud=$options(baud)"
+puts "FPGA_BUILD_INPUT: irom_words=$options(irom_words)"
 
 open_project $project_path
 set_param general.maxThreads $options(jobs)
@@ -169,8 +175,8 @@ if {$options(check_only)} {
     puts "FPGA_BUILD_CHECK: current_pll_mhz=[get_property CONFIG.CLKOUT2_REQUESTED_OUT_FREQ $pll_ip]"
     set current_irom_depth [get_property CONFIG.Write_Depth_A $irom_ip]
     puts "FPGA_BUILD_CHECK: irom_words=$current_irom_depth"
-    if {$current_irom_depth != 16384} {
-        fail_build "Mem_IROM must be 16384 words (64 KiB), got $current_irom_depth" 3
+    if {$current_irom_depth != $options(irom_words)} {
+        fail_build "Mem_IROM must be $options(irom_words) words, got $current_irom_depth" 3
     }
     puts "FPGA_BUILD_CHECK: would bind Mem_IROM to $irom_coe"
     puts "FPGA_BUILD_CHECK: would bind Mem_RAM to $dram_coe"
@@ -187,9 +193,16 @@ set_property generic [list \
     P_CPU_CONSOLE_ON_UART=1 \
     P_CPU_CLK_HZ=$cpu_clk_hz \
     P_CPU_UART_BAUD_RATE=$options(baud)] $source_set
+set simulation_sets [get_filesets -quiet sim_1]
+if {[llength $simulation_sets] == 1} {
+    set_property generic [list \
+        P_CPU_CONSOLE_ON_UART=1 \
+        P_CPU_CLK_HZ=$cpu_clk_hz \
+        P_CPU_UART_BAUD_RATE=$options(baud)] [lindex $simulation_sets 0]
+}
 
 # Bind the requested software image before regenerating the BRAM output products.
-set_property CONFIG.Write_Depth_A 16384 $irom_ip
+set_property CONFIG.Write_Depth_A $options(irom_words) $irom_ip
 set_property CONFIG.Load_Init_File true $irom_ip
 set_property CONFIG.Coe_File $irom_coe $irom_ip
 set_property CONFIG.Load_Init_File true $dram_ip
@@ -278,6 +291,7 @@ puts $summary "requested_mhz=$options(freq_mhz)"
 puts $summary "actual_mhz=$actual_mhz"
 puts $summary "period_ns=$period_ns"
 puts $summary "uart_baud=$options(baud)"
+puts $summary "irom_words=$options(irom_words)"
 puts $summary "synth_status=$synth_status"
 puts $summary "impl_status=$impl_status"
 puts $summary "wns_ns=$wns"
