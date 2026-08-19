@@ -39,9 +39,13 @@ module counter(
         end
     endfunction
 
-    logic [15:0] cnt_1ms;
-    logic [31:0] cnt_ms_bin;
-    logic [31:0] cnt_ms_gray;
+    // Count the independent 50 MHz reference clock directly.  The previous
+    // implementation divided this clock down to 1 kHz, which limited elapsed
+    // time to millisecond resolution and forced the last three printed
+    // decimal digits to zero.  A 32-bit 50 MHz elapsed count covers about
+    // 85.9 seconds, sufficient for the 18,000-iteration CoreMark image.
+    logic [31:0] cnt_cycles_bin;
+    logic [31:0] cnt_cycles_gray;
     logic cnt_enable_cnt_d1, cnt_enable_cnt_d2;
     logic [31:0] cnt_gray_cpu_d1, cnt_gray_cpu_d2;
     logic [31:0] cnt_bin_cpu_d;
@@ -59,29 +63,13 @@ module counter(
 
     always_ff @(posedge cnt_clk) begin
         if (rst) begin
-            cnt_1ms <= 0;
+            cnt_cycles_bin <= 32'd0;
         end else if (cnt_enable_cnt_d2) begin
-            if (cnt_1ms == 49999) begin
-                cnt_1ms <= 0;
-            end else begin
-                cnt_1ms <= cnt_1ms + 1;
-            end
-        end else begin
-            cnt_1ms <= 0;
+            cnt_cycles_bin <= cnt_cycles_bin + 32'd1;
         end
     end
 
-    always_ff @(posedge cnt_clk) begin
-        if (rst) begin
-            cnt_ms_bin <= 0;
-        end else if (cnt_enable_cnt_d2 && cnt_1ms == 49999) begin
-            cnt_ms_bin <= cnt_ms_bin + 1;
-        end else begin
-            cnt_ms_bin <= cnt_ms_bin;
-        end
-    end
-
-    assign cnt_ms_gray = cnt_ms_bin ^ (cnt_ms_bin >> 1);
+    assign cnt_cycles_gray = cnt_cycles_bin ^ (cnt_cycles_bin >> 1);
 
     // Counter->CPU CDC: Gray code allows safe multi-bit crossing.
     always_ff @(posedge cpu_clk) begin
@@ -90,7 +78,7 @@ module counter(
             cnt_gray_cpu_d2 <= 32'd0;
             cnt_bin_cpu_d   <= 32'd0;
         end else begin
-            cnt_gray_cpu_d1 <= cnt_ms_gray;
+            cnt_gray_cpu_d1 <= cnt_cycles_gray;
             cnt_gray_cpu_d2 <= cnt_gray_cpu_d1;
             cnt_bin_cpu_d   <= gray_to_bin(cnt_gray_cpu_d2);
         end
