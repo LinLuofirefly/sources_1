@@ -5,7 +5,7 @@
 #include "board.h"
 #include "drv_hcsr04.h"
 
-#define COREMARK_LED_RUNNING 0x434d0001u
+#define COREMARK_LED_RUNNING (1u << 0)
 #define SHELL_LINE_SIZE       32u
 
 extern int coremark_entry(void);
